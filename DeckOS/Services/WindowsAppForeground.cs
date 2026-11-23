@@ -12,13 +12,16 @@ namespace DeckOS.Services;
 // Brings the launched app's user-facing window in front of the active app.
 //
 // A deck tap arrives over the network, so Windows treats DeckOS as a background process:
-// SetForegroundWindow is refused while the user is active (foreground lock), and the apps
-// DeckOS starts or wakes inherit that refusal, so their windows open behind. Restoring a
-// minimized window is still honored (PowerToys Window Walker relies on the same rule), so a
-// visible window that refuses activation is minimized without activation and restored, once
-// (Macro Deck's fallback, without its SW_MINIMIZE side effects). Every step is verified
-// against the real foreground window. No input injection, topmost, lock changes or touching
-// other apps' windows.
+// while the user is active (foreground lock) it refuses SetForegroundWindow, joined-input
+// SetForegroundWindow, SwitchToThisWindow and activation by SW_RESTORE or SC_RESTORE, and the
+// apps DeckOS starts or wakes inherit that refusal (measured on Windows 11 26300). Apps that
+// still come forward (Chromium, Firefox; UI Automation's SetFocus too) inject a synthetic
+// hotkey, which DeckOS does not do. What Windows does allow is normal stacking: the window is
+// placed above the active app without activation (not topmost), so it opens in front and the
+// user's click focuses it. Activation is still tried first and wins whenever Windows permits
+// it (idle past the lock timeout, no foreground window, the app activating itself).
+// Every step is verified against the real foreground window and z-order. No input
+// injection, topmost, lock changes or touching other apps' windows.
 //
 // Identity comes from launch metadata: shortcut/exe image path, packaged AUMID and the
 // process tree the launch started (launcher stubs that start the real UI from the same
@@ -43,12 +46,13 @@ internal static class WindowsAppForeground
         IntPtr Foreground();
         bool SetForeground(IntPtr window, bool attachInput, out string detail);
         bool Show(IntPtr window, int command);
+        /// <summary>Moves the window to the top of the normal (non-topmost) z-order without activating it.</summary>
+        bool Raise(IntPtr window);
         long ElapsedMs { get; }
         long UtcNow { get; }
         void Delay(int ms);
     }
 
-    internal const int SW_SHOW = 5, SW_SHOWMINNOACTIVE = 7;
     internal const int SW_RESTORE = 9;
     internal const long WS_EX_TOOLWINDOW = 0x80, WS_EX_APPWINDOW = 0x40000, WS_EX_NOACTIVATE = 0x08000000;
 
@@ -152,13 +156,13 @@ internal static class WindowsAppForeground
 
     internal sealed class Session
     {
-        internal const int FirstWindowMs = 12000, SettleMs = 1500, CycleAfterMs = 250, RetryMs = 250,
+        internal const int FirstWindowMs = 12000, SettleMs = 1500, RetryMs = 250,
             ExitedLaunchMs = 4000, NewWindowGraceMs = 300;
 
         private sealed class Progress
         {
-            public long FirstSeen, LastTry = long.MinValue / 2;
-            public bool Shown, Cycled, Undone;
+            public long FirstSeen, LastTry = long.MinValue / 2, RaisedAt = -1;
+            public bool Restored;
         }
 
         private readonly Target _target;
@@ -197,6 +201,7 @@ internal static class WindowsAppForeground
         internal Result Run()
         {
             long verifiedAt = -1;
+            Window? raised = null;
             while (true)
             {
                 var elapsed = _os.ElapsedMs - _startMs;
@@ -208,7 +213,6 @@ internal static class WindowsAppForeground
                 var foreground = _os.Foreground();
                 var fgWindow = windows.FirstOrDefault(w => w.Handle == foreground);
                 var candidates = windows.Where(w => IsUserFacing(w) && IsTarget(w)).ToList();
-                UndoHiddenCycles(windows);
 
                 if (fgWindow != null && IsTarget(fgWindow))
                 {
@@ -216,11 +220,11 @@ internal static class WindowsAppForeground
                     {
                         if (verifiedAt < 0) { verifiedAt = elapsed; _steps.Add($"foreground@{elapsed}"); }
                         // An older window got focus but the launch opened a new one (single-instance
-                        // hand-off); if the app leaves the new window behind, raise it.
+                        // hand-off); if the app leaves the new window behind, bring that one up too.
                         var newer = !_before.Contains(foreground) ? null : candidates.FirstOrDefault(w =>
-                            !_before.Contains(w.Handle) && !w.Minimized &&
-                            elapsed - Seen(w, elapsed).FirstSeen >= NewWindowGraceMs && !Seen(w, elapsed).Cycled);
-                        if (newer != null) Advance(newer, elapsed, true);
+                            !_before.Contains(w.Handle) && !w.Minimized && !IsAbove(windows, w.Handle, foreground) &&
+                            elapsed - Seen(w, elapsed).FirstSeen >= NewWindowGraceMs && Seen(w, elapsed).RaisedAt < 0);
+                        if (newer != null) Advance(newer, elapsed, windows, foreground);
                         else if (elapsed - verifiedAt >= SettleMs) return Finish("foreground", fgWindow, elapsed);
                     }
                     // Otherwise a transient window of the app holds focus (e.g. single-instance hand-off).
@@ -233,10 +237,19 @@ internal static class WindowsAppForeground
                 if (foreground == IntPtr.Zero && verifiedAt >= 0 && elapsed < FirstWindowMs) { Wait(elapsed); continue; }
                 if (verifiedAt >= 0) return Finish("lost", fgWindow, elapsed); // never fight a later switch
                 if (foreground != IntPtr.Zero && foreground != _originalForeground)
-                    return Finish("user-switched", null, elapsed);
+                    return Finish(raised != null ? "raised" : "user-switched", raised, elapsed);
 
                 var pick = candidates.FirstOrDefault(w => !_before.Contains(w.Handle)) ?? candidates.FirstOrDefault();
-                if (pick != null) Advance(pick, elapsed, false);
+                if (pick != null && Seen(pick, elapsed).RaisedAt is var raisedAt and >= 0)
+                {
+                    // In front by normal stacking; give the app a moment to activate itself, then stop.
+                    // A click on another window ends it too: never stack over the user's choice again.
+                    raised = pick;
+                    var above = IsAbove(windows, pick.Handle, foreground);
+                    if (!above || elapsed - raisedAt >= SettleMs)
+                        return Finish(above ? "raised" : "behind", pick, elapsed);
+                }
+                else if (pick != null) Advance(pick, elapsed, windows, foreground);
                 else if (elapsed >= FirstWindowMs ||
                          (elapsed >= ExitedLaunchMs && !processes.Any(p => _family.Contains(p.Id))))
                     return Finish("no-visible-window", null, elapsed);
@@ -254,52 +267,37 @@ internal static class WindowsAppForeground
             return p;
         }
 
-        private void Advance(Window w, long elapsed, bool cycleOnly)
+        /// <summary>Snapshot is in z-order, so a lower index is higher on screen.</summary>
+        internal static bool IsAbove(IReadOnlyList<Window> windows, IntPtr window, IntPtr other)
+        {
+            for (var i = 0; i < windows.Count; i++)
+            {
+                if (windows[i].Handle == window) return true;
+                if (windows[i].Handle == other) return false;
+            }
+            return false;
+        }
+
+        private void Advance(Window w, long elapsed, IReadOnlyList<Window> windows, IntPtr foreground)
         {
             var p = Seen(w, elapsed);
             if (w.Minimized)
             {
-                // Restoring a minimized window is honored even for a background caller.
-                if (!p.Cycled) { p.Cycled = true; _steps.Add(Shown(_os.Show(w.Handle, SW_RESTORE), "restore", elapsed)); }
+                if (!p.Restored) { p.Restored = true; _steps.Add(Step(_os.Show(w.Handle, SW_RESTORE), "restore", elapsed)); }
                 return;
             }
-            if (!cycleOnly && elapsed - p.LastTry >= RetryMs)
-            {
-                p.LastTry = elapsed;
-                if (_os.SetForeground(w.Handle, false, out var direct)) { _steps.Add($"set@{elapsed}"); return; }
-                if (_os.SetForeground(w.Handle, true, out var attached)) { _steps.Add($"attach@{elapsed}"); return; }
-                if (!_steps.Any(s => s.StartsWith("refused", StringComparison.Ordinal)))
-                    _steps.Add($"refused@{elapsed}({direct};{attached})");
-                // SW_SHOW asks the window's own thread to activate it, without changing its size.
-                if (!p.Shown) { p.Shown = true; _steps.Add(Shown(_os.Show(w.Handle, SW_SHOW), "show", elapsed)); }
-            }
-            if (!p.Cycled && (cycleOnly || elapsed - p.FirstSeen >= CycleAfterMs))
-            {
-                // No activation on minimize, so nothing else changes; the restore keeps maximized state.
-                var minimized = _os.Show(w.Handle, SW_SHOWMINNOACTIVE);
-                var restored = minimized && _os.Show(w.Handle, SW_RESTORE);
-                p.Cycled = true;
-                _steps.Add(Shown(restored, "cycle", elapsed));
-            }
+            if (elapsed - p.LastTry < RetryMs) return;
+            p.LastTry = elapsed;
+            if (_os.SetForeground(w.Handle, false, out var direct)) { _steps.Add($"set@{elapsed}"); return; }
+            if (_os.SetForeground(w.Handle, true, out var attached)) { _steps.Add($"attach@{elapsed}"); return; }
+            _steps.Add($"refused@{elapsed}({direct};{attached})");
+            p.RaisedAt = elapsed;
+            _steps.Add(IsAbove(windows, w.Handle, foreground) ? $"above@{elapsed}" : Step(_os.Raise(w.Handle), "raise", elapsed));
         }
 
-        // ShowWindowAsync fails for windows Windows protects from DeckOS (e.g. elevated apps).
-        private static string Shown(bool accepted, string step, long elapsed) =>
+        // Windows rejects these for windows protected from DeckOS (e.g. elevated apps, UIPI).
+        private static string Step(bool accepted, string step, long elapsed) =>
             accepted ? $"{step}@{elapsed}" : $"{step}-denied@{elapsed}";
-
-        // An app that hides itself when minimized (to tray) gets the window it had back.
-        private void UndoHiddenCycles(IReadOnlyList<Window> windows)
-        {
-            foreach (var w in windows)
-            {
-                if (!w.Visible && _progress.TryGetValue(w.Handle, out var p) && p.Cycled && !p.Undone)
-                {
-                    _os.Show(w.Handle, SW_RESTORE);
-                    p.Undone = true;
-                    _steps.Add("unhide");
-                }
-            }
-        }
 
         private void UpdateFamily(IReadOnlyList<ProcessEntry> processes)
         {
@@ -357,6 +355,9 @@ internal static class WindowsAppForeground
         public void Delay(int ms) => Thread.Sleep(ms);
         public IntPtr Foreground() => GetForegroundWindow();
         public bool Show(IntPtr window, int command) => ShowWindowAsync(window, command);
+        // HWND_TOP keeps it in the normal band (never topmost); async so a hung app can't block DeckOS.
+        public bool Raise(IntPtr window) =>
+            SetWindowPos(window, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x4000 /* NOSIZE|NOMOVE|NOACTIVATE|ASYNCWINDOWPOS */);
 
         public IReadOnlyList<Window> Snapshot(bool readAppIds)
         {
@@ -522,6 +523,7 @@ internal static class WindowsAppForeground
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern IntPtr GetLastActivePopup(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);

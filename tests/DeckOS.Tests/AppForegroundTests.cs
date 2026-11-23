@@ -91,9 +91,10 @@ public class AppForegroundTests
     private static readonly IntPtr Active = new(900);
 
     /// <summary>
-    /// Desktop model of what was measured: while the user is active, SetForegroundWindow (direct or
-    /// with joined input) is refused for DeckOS, a SW_RESTORE of a minimized window is honored, and
-    /// the foreground process may activate its own new windows.
+    /// Desktop model of what was measured on Windows 11 with the user active in a maximized app:
+    /// DeckOS's SetForegroundWindow (direct or joined input) is refused, SW_RESTORE un-minimizes
+    /// without activating (the window lands at the bottom of the z-order), a HWND_TOP raise
+    /// re-stacks without activating, and the foreground app may activate its own windows.
     /// </summary>
     private sealed class Desktop : W.IWindows
     {
@@ -105,17 +106,16 @@ public class AppForegroundTests
         public readonly List<Win> Z = new();
         public readonly Dictionary<uint, (string? Image, string? Aumid, long Created, uint Parent)> Procs = new();
         public readonly HashSet<uint> Exited = new();
+        public readonly HashSet<IntPtr> Protected = new(); // e.g. elevated: ShowWindowAsync/SetWindowPos fail
         public readonly List<string> Calls = new();
         public readonly List<(long At, Action Do)> Events = new();
         public IntPtr Fg = Active;
         public bool ForegroundLock = true;
-        public Action<Win>? OnMinimized;
         public long Ms, Utc = 1000;
 
         public Desktop()
         {
             Add(Active, 1, @"C:\Other\Editor.exe");
-            Procs[1] = (@"C:\Other\Editor.exe", null, 10, 0);
         }
 
         public Win Add(IntPtr handle, uint pid, string? image = null, bool top = false)
@@ -127,6 +127,7 @@ public class AppForegroundTests
         }
 
         public Win Get(int handle) => Z.Single(w => w.Handle == new IntPtr(handle));
+        public IntPtr Top => Z[0].Handle;
         public void Activate(Win w) { Z.Remove(w); Z.Insert(0, w); Fg = w.Handle; }
         public void At(long ms, Action action) => Events.Add((ms, action));
 
@@ -144,15 +145,25 @@ public class AppForegroundTests
             if (!ForegroundLock) Activate(Z.Single(w => w.Handle == window));
             return Fg == window;
         }
-        public readonly HashSet<IntPtr> Protected = new(); // e.g. elevated: ShowWindowAsync fails
         public bool Show(IntPtr window, int command)
         {
             Calls.Add($"show{command}:{window}");
             if (Protected.Contains(window)) return false;
             var w = Z.Single(x => x.Handle == window);
-            if (command == W.SW_SHOWMINNOACTIVE) { w.Min = true; OnMinimized?.Invoke(w); }
-            else if (command == W.SW_RESTORE && w.Min) { w.Min = false; w.Visible = true; Activate(w); }
-            else if (command == W.SW_RESTORE && !w.Visible) w.Visible = true;
+            if (command == W.SW_RESTORE && w.Min)
+            {
+                w.Min = false;
+                if (!ForegroundLock) Activate(w);
+                else { Z.Remove(w); Z.Add(w); }
+            }
+            return true;
+        }
+        public bool Raise(IntPtr window)
+        {
+            Calls.Add($"raise:{window}");
+            if (Protected.Contains(window)) return false;
+            var w = Z.Single(x => x.Handle == window);
+            Z.Remove(w); Z.Insert(0, w);
             return true;
         }
         public long ElapsedMs => Ms;
@@ -172,9 +183,9 @@ public class AppForegroundTests
     }
 
     [Fact]
-    public void VisibleWindowBehindActiveApp_IsMinimizedWithoutActivationAndRestoredOnce()
+    public void VisibleWindowBehindActiveApp_IsStackedInFrontWithoutStealingOrMinimizing()
     {
-        // EasyCLIProxyAPI case: running window behind a maximized app, foreground refused.
+        // EasyCLIProxyAPI trace: Tauri window behind a maximized app, every activation refused.
         var d = new Desktop();
         d.Add(new IntPtr(10), 5, App).Ex = 0x40110;
         d.Add(new IntPtr(11), 5).Ex = 0x80800A0; // Tao event target, visible but not activatable
@@ -183,49 +194,68 @@ public class AppForegroundTests
 
         var result = Run(d, new(App, null), 6);
 
-        Assert.Equal("foreground", result.Outcome);
-        Assert.Equal(new IntPtr(10), d.Fg);
-        Assert.Equal(1, d.Calls.Count(c => c == "show7:10"));
-        Assert.Equal(1, d.Calls.Count(c => c == "show9:10"));
-        Assert.DoesNotContain(d.Calls, c => c.EndsWith(":11") || c.EndsWith(":900"));
-        Assert.True(d.Calls.IndexOf("set:10") < d.Calls.IndexOf("attach:10"));
-        Assert.True(d.Calls.IndexOf("show5:10") < d.Calls.IndexOf("show7:10"));
-        Assert.Contains("refused", result.Steps);
-        Assert.Contains("cycle@", result.Steps);
-    }
-
-    [Fact]
-    public void WindowProtectedFromDeckOS_ReportsDenialHonestly()
-    {
-        var d = new Desktop();
-        d.Add(new IntPtr(10), 5, App);
-        d.Protected.Add(new IntPtr(10));
-        var result = Run(d, new(App, null));
-        Assert.Equal("refused", result.Outcome);
-        Assert.Contains("cycle-denied", result.Steps);
-        Assert.DoesNotContain("show9:10", d.Calls);
+        Assert.Equal("raised", result.Outcome);
+        Assert.Equal(new IntPtr(10), d.Top);
         Assert.Equal(Active, d.Fg);
+        Assert.Equal(new[] { "set:10", "attach:10", "raise:10" }, d.Calls);
+        Assert.Contains("refused@0(denied;denied),raise@0", result.Steps);
+        Assert.InRange(result.ElapsedMs, W.Session.SettleMs, W.Session.SettleMs + 100);
     }
 
     [Fact]
-    public void WhenWindowsAllowsActivation_NoMinimizeCycleHappens()
+    public void WhenWindowsAllowsActivation_ItIsActivatedNotJustStacked()
     {
         var d = new Desktop { ForegroundLock = false };
         d.Add(new IntPtr(10), 5, App);
         var result = Run(d, new(App, null));
         Assert.Equal("foreground", result.Outcome);
-        Assert.DoesNotContain(d.Calls, c => c.StartsWith("show"));
+        Assert.Equal(new IntPtr(10), d.Fg);
+        Assert.Equal(new[] { "set:10" }, d.Calls);
     }
 
     [Fact]
-    public void MinimizedWindow_IsRestoredOnce_WithoutForcedCycle()
+    public void MinimizedWindow_IsRestoredThenStackedInFront()
     {
         var d = new Desktop();
         d.Add(new IntPtr(10), 5, App).Min = true;
         var result = Run(d, new(App, null));
-        Assert.Equal("foreground", result.Outcome);
-        Assert.Equal(new[] { "show9:10" }, d.Calls);
+        Assert.Equal("raised", result.Outcome);
+        Assert.Equal(new[] { "show9:10", "set:10", "attach:10", "raise:10" }, d.Calls);
         Assert.False(d.Get(10).Min);
+        Assert.Equal(new IntPtr(10), d.Top);
+    }
+
+    [Fact]
+    public void MinimizedWindow_WhenAllowed_RestoreAloneActivates()
+    {
+        var d = new Desktop { ForegroundLock = false };
+        d.Add(new IntPtr(10), 5, App).Min = true;
+        Assert.Equal("foreground", Run(d, new(App, null)).Outcome);
+        Assert.Equal(new[] { "show9:10" }, d.Calls);
+    }
+
+    [Fact]
+    public void AppThatActivatesItself_EndsInForeground()
+    {
+        // Chromium/Firefox take focus themselves a moment after the hand-off.
+        var d = new Desktop();
+        var w = d.Add(new IntPtr(10), 5, App);
+        d.At(600, () => d.Activate(w));
+        var result = Run(d, new(App, null));
+        Assert.Equal("foreground", result.Outcome);
+        Assert.Single(d.Calls, "raise:10");
+    }
+
+    [Fact]
+    public void UserClicksBackAfterRaise_IsNeverStackedOverAgain()
+    {
+        var d = new Desktop();
+        d.Add(new IntPtr(10), 5, App);
+        d.At(300, () => d.Activate(d.Get(900)));
+        var result = Run(d, new(App, null));
+        Assert.Equal("behind", result.Outcome);
+        Assert.Single(d.Calls, "raise:10");
+        Assert.Equal(Active, d.Top);
     }
 
     [Fact]
@@ -249,7 +279,7 @@ public class AppForegroundTests
     }
 
     [Fact]
-    public void ColdLauncherStub_UiChildInSameInstallTree_IsFoundAfterFourSeconds()
+    public void ColdLauncherStub_UiChildInSameInstallTree_IsFoundAfterSixSeconds()
     {
         const string stub = @"C:\Apps\Gem\Gem.exe", ui = @"C:\Apps\Gem\app-1.2\Gem.exe";
         var d = new Desktop();
@@ -261,8 +291,9 @@ public class AppForegroundTests
 
         var result = Run(d, new(stub, null), 100);
 
-        Assert.Equal("foreground", result.Outcome);
-        Assert.Equal(new IntPtr(31), d.Fg);
+        Assert.Equal("raised", result.Outcome);
+        Assert.Equal(new IntPtr(31), result.Window);
+        Assert.Equal(new IntPtr(31), d.Top);
         Assert.DoesNotContain(d.Calls, c => c.EndsWith(":30"));
         Assert.Contains("child-image", result.Steps);
     }
@@ -279,8 +310,8 @@ public class AppForegroundTests
 
         var result = Run(d, new(stub, null), 100);
 
-        Assert.Equal("foreground", result.Outcome);
-        Assert.Equal(new IntPtr(40), d.Fg);
+        Assert.Equal("raised", result.Outcome);
+        Assert.Equal(new IntPtr(40), d.Top);
     }
 
     [Fact]
@@ -298,7 +329,7 @@ public class AppForegroundTests
 
         var result = Run(d, new(cmd, null), 100);
 
-        Assert.Equal(new IntPtr(51), d.Fg);
+        Assert.Equal(new IntPtr(51), d.Top);
         Assert.DoesNotContain(d.Calls, c => c.EndsWith(":50"));
         Assert.DoesNotContain("child-image", result.Steps);
     }
@@ -335,11 +366,12 @@ public class AppForegroundTests
 
         Assert.Equal("foreground", result.Outcome);
         Assert.Equal(new IntPtr(72), result.Window);
-        Assert.Equal(new[] { "show9:70" }, d.Calls);
+        Assert.Contains("show9:70", d.Calls);
+        Assert.DoesNotContain(d.Calls, c => c.EndsWith(":71") || c.EndsWith(":72"));
     }
 
     [Fact]
-    public void SingleInstanceHandOff_NewWindowLeftBehind_IsRaised()
+    public void SingleInstanceHandOff_NewWindowLeftBehind_IsTheOneStackedInFront()
     {
         var d = new Desktop();
         d.Add(new IntPtr(70), 60, App);
@@ -349,19 +381,9 @@ public class AppForegroundTests
 
         var result = Run(d, new(App, null), 100);
 
-        Assert.Equal(new IntPtr(72), d.Fg);
-        Assert.Equal("foreground", result.Outcome);
-        Assert.Contains("show9:72", d.Calls);
-    }
-
-    [Fact]
-    public void AppThatHidesWhenMinimized_GetsItsWindowBack()
-    {
-        var d = new Desktop { OnMinimized = w => w.Visible = false };
-        d.Add(new IntPtr(10), 5, App);
-        var result = Run(d, new(App, null));
-        Assert.True(d.Get(10).Visible);
-        Assert.Equal("foreground", result.Outcome);
+        Assert.Equal("raised", result.Outcome);
+        Assert.Equal(new IntPtr(72), result.Window);
+        Assert.Equal(new IntPtr(72), d.Top);
     }
 
     [Fact]
@@ -383,7 +405,7 @@ public class AppForegroundTests
     [Fact]
     public void FocusLostAfterVerification_IsNotFoughtBack()
     {
-        var d = new Desktop();
+        var d = new Desktop { ForegroundLock = false };
         d.Add(new IntPtr(10), 5, App).Min = true;
         d.At(500, () => d.Activate(d.Get(900)));
         var result = Run(d, new(App, null));
@@ -413,9 +435,21 @@ public class AppForegroundTests
 
         var result = Run(d, new(null, "Pkg!App"));
 
-        Assert.Equal(new IntPtr(96), d.Fg);
-        Assert.Equal("foreground", result.Outcome);
+        Assert.Equal(new IntPtr(96), d.Top);
+        Assert.Equal("raised", result.Outcome);
         Assert.DoesNotContain(d.Calls, c => c.EndsWith(":95"));
+    }
+
+    [Fact]
+    public void WindowProtectedFromDeckOS_ReportsDenialHonestly()
+    {
+        var d = new Desktop();
+        d.Add(new IntPtr(10), 5, App);
+        d.Protected.Add(new IntPtr(10));
+        var result = Run(d, new(App, null));
+        Assert.Equal("behind", result.Outcome);
+        Assert.Contains("raise-denied", result.Steps);
+        Assert.Equal(Active, d.Top);
     }
 
     // Real Win32 windows: the native snapshot must report the metadata the rules depend on.
@@ -449,6 +483,15 @@ public class AppForegroundTests
             foreach (var other in new[] { tool, eventTarget, hidden, owned, empty })
                 Assert.False(W.IsUserFacing(mine[other]));
             Assert.All(mine.Values, w => Assert.Equal((uint)Environment.ProcessId, w.ProcessId));
+
+            // Raise re-stacks in the normal band without activating anything.
+            var second = Make(0x100, overlapped | visible, 200);
+            var foregroundBefore = native.Foreground();
+            Assert.True(native.Raise(main));
+            Assert.True(W.Session.IsAbove(native.Snapshot(false), main, second));
+            Assert.True(native.Raise(second));
+            Assert.True(W.Session.IsAbove(native.Snapshot(false), second, main));
+            Assert.Equal(foregroundBefore, native.Foreground());
 
             var self = native.Identity((uint)Environment.ProcessId);
             Assert.Equal(Environment.ProcessPath, self.Image, StringComparer.OrdinalIgnoreCase);
