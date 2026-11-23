@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:deckos/core/core.dart';
 import 'package:deckos/src/services/signalr_service.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop, kPressTimeout;
 import 'package:flutter/material.dart';
 
 import '../buttons/button_look.dart';
@@ -34,6 +37,8 @@ class _DeckGridButtonState extends State<DeckGridButton> {
 
   /// Dedo que está segurando a tecla (um segundo dedo no mesmo botão não conta).
   int? _pointer;
+  Offset? _pointerStart;
+  Timer? _holdTimer;
 
   /// O aperta foi pelo hub; sem conexão, o soltar vira um toque pelo /press.
   bool _sentLive = false;
@@ -109,8 +114,16 @@ class _DeckGridButtonState extends State<DeckGridButton> {
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: _press,
+      onPointerMove: (e) {
+        if (e.pointer != _pointer || _pointerStart == null) return;
+        final supplied = MediaQuery.maybeOf(context)?.gestureSettings.touchSlop ?? kTouchSlop;
+        final slop = supplied < kTouchSlop ? kTouchSlop : supplied;
+        if ((e.position - _pointerStart!).distance > slop) {
+          _lift(e.pointer, cancelled: true);
+        }
+      },
       onPointerUp: (e) => _lift(e.pointer),
-      onPointerCancel: (e) => _lift(e.pointer),
+      onPointerCancel: (e) => _lift(e.pointer, cancelled: true),
       child: IgnorePointer(
         child: AnimatedScale(
           scale: down ? 0.93 : 1,
@@ -128,21 +141,32 @@ class _DeckGridButtonState extends State<DeckGridButton> {
 
   void _press(PointerDownEvent e) {
     if (_pointer != null) return;
+    _pointerStart = e.position;
     setState(() => _pointer = e.pointer);
     ThemeController.instance.tapFeedback();
-    try {
-      _sentLive = Injector.get<SignalRService>().holdKey(widget.button.id);
-    } catch (_) {
-      _sentLive = false;
-    }
+    // Let an intentional page swipe cross slop before sending a held key. A
+    // quick contact/release uses the ordinary tap action immediately on release.
+    _holdTimer?.cancel();
+    _holdTimer = Timer(kPressTimeout, () {
+      _holdTimer = null;
+      if (!mounted || _pointer != e.pointer) return;
+      try {
+        _sentLive = Injector.get<SignalRService>().holdKey(widget.button.id);
+      } catch (_) {
+        _sentLive = false;
+      }
+    });
   }
 
-  void _lift(int pointer) {
+  void _lift(int pointer, {bool cancelled = false}) {
     if (_pointer != pointer) return;
+    _holdTimer?.cancel();
+    _holdTimer = null;
     setState(() => _pointer = null);
+    _pointerStart = null;
     if (_sentLive) {
       _release(widget.button.id);
-    } else {
+    } else if (!cancelled) {
       // Sem o hub (reconectando): vai como toque rápido pelo caminho normal, que também
       // avisa se o PC não responder.
       widget.onTap();
@@ -150,6 +174,10 @@ class _DeckGridButtonState extends State<DeckGridButton> {
   }
 
   void _release(String buttonId) {
+    _holdTimer?.cancel();
+    _holdTimer = null;
+    _pointer = null;
+    _pointerStart = null;
     if (!_sentLive) return;
     _sentLive = false;
     _pointer = null;
