@@ -305,7 +305,12 @@ internal static class WindowsAppForeground
             var p = Seen(w, elapsed);
             if (w.Minimized)
             {
-                if (!p.Restored) { p.Restored = true; _steps.Add(Step(_os.Show(w.Handle, SW_RESTORE), "restore", elapsed)); }
+                // Activate and restore in one step: restored without activation it lands at the
+                // bottom of the z-order. If activation is refused, the next pass stacks it instead.
+                if (p.Restored) return;
+                p.Restored = true;
+                var activated = _os.SetForeground(w.Handle, false, out _) || _os.SetForeground(w.Handle, true, out _);
+                _steps.Add(Step(_os.Show(w.Handle, SW_RESTORE), activated ? "activate+restore" : "restore", elapsed));
                 return;
             }
             if (elapsed - p.LastTry < RetryMs) return;
@@ -474,8 +479,9 @@ internal static class WindowsAppForeground
             // Join the TARGET window's thread to the foreground thread's input queue: activation is
             // then a switch inside the active input context, which Windows allows (measured; Firefox
             // does the same from its own thread). Joining DeckOS's own thread instead is refused.
-            // While joined the two apps share input state, so both must be responsive right now and
-            // the join is always undone. Windows still blocks this across integrity levels (UIPI).
+            // While joined the two apps share input and keyboard state, so both must be responsive
+            // right now, nothing else runs while joined, and the join is always undone at once.
+            // Windows still blocks it across integrity levels (UIPI) and desktops.
             var foreground = GetForegroundWindow();
             var targetThread = GetWindowThreadProcessId(window, out _);
             var foregroundThread = GetWindowThreadProcessId(foreground, out _);

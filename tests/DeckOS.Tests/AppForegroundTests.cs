@@ -157,7 +157,7 @@ public class AppForegroundTests
             if (command == W.SW_RESTORE && w.Min)
             {
                 w.Min = false;
-                if (!ForegroundLock) Activate(w);
+                if (!ForegroundLock || Fg == window) Activate(w);
                 else { Z.Remove(w); Z.Add(w); }
             }
             return true;
@@ -238,7 +238,8 @@ public class AppForegroundTests
         d.Add(new IntPtr(10), 5, App).Min = true;
         var result = Run(d, new(App, null));
         Assert.Equal("foreground", result.Outcome);
-        Assert.Equal(new[] { "show9:10", "set:10", "attach:10" }, d.Calls);
+        Assert.Equal(new[] { "set:10", "attach:10", "show9:10" }, d.Calls);
+        Assert.Contains("activate+restore@0", result.Steps);
         Assert.False(d.Get(10).Min);
         Assert.Equal(new IntPtr(10), d.Fg);
     }
@@ -250,7 +251,7 @@ public class AppForegroundTests
         d.Add(new IntPtr(10), 5, App).Min = true;
         var result = Run(d, new(App, null));
         Assert.Equal("raised", result.Outcome);
-        Assert.Equal(new[] { "show9:10", "set:10", "attach:10", "raise:10" }, d.Calls);
+        Assert.Equal(new[] { "set:10", "attach:10", "show9:10", "set:10", "attach:10", "raise:10" }, d.Calls);
         Assert.Equal(new IntPtr(10), d.Top);
     }
     [Fact]
@@ -259,7 +260,7 @@ public class AppForegroundTests
         var d = new Desktop { ForegroundLock = false };
         d.Add(new IntPtr(10), 5, App).Min = true;
         Assert.Equal("foreground", Run(d, new(App, null)).Outcome);
-        Assert.Equal(new[] { "show9:10" }, d.Calls);
+        Assert.Equal(new[] { "set:10", "show9:10" }, d.Calls);
     }
 
     [Fact]
@@ -493,7 +494,7 @@ public class AppForegroundTests
         d.At(500, () => d.Activate(d.Get(900)));
         var result = Run(d, new(App, null));
         Assert.Equal("lost", result.Outcome);
-        Assert.Single(d.Calls);
+        Assert.Equal(new[] { "set:10", "show9:10" }, d.Calls);
     }
 
     [Fact]
