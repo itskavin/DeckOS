@@ -92,9 +92,31 @@ public class AppForegroundTests
     public void MissingWindowOrDeniedForeground_StopsAtBoundedDeadline(bool exists)
     {
         var windows = new Windows { FindWindow = _ => exists ? new IntPtr(303) : IntPtr.Zero, Activation = _ => false };
-        Assert.False(WindowsAppForeground.Restore(new(@"C:\App.exe", null), windows, windows.Delay));
-        Assert.Equal(41, windows.Finds);
-        Assert.Equal(exists ? 41 : 0, windows.Activations);
-        Assert.Equal(2000, windows.WaitMs);
+        Assert.False(WindowsAppForeground.Restore(new(@"C:\App.exe", null), windows, windows.Delay, () => windows.WaitMs));
+        Assert.Equal(80, windows.Finds);
+        Assert.Equal(exists ? 80 : 0, windows.Activations);
+        Assert.Equal(4000, windows.WaitMs);
+    }
+
+    [Fact]
+    public void SlowWindowEnumeration_CountsTowardDeadline()
+    {
+        var windows = new Windows();
+        windows.FindWindow = _ => { windows.WaitMs += 4000; return IntPtr.Zero; };
+        Assert.False(WindowsAppForeground.Restore(new(null, "Pkg!App"), windows, windows.Delay, () => windows.WaitMs));
+        Assert.Equal(1, windows.Finds);
+        Assert.Equal(0, windows.Activations);
+        Assert.Equal(4000, windows.WaitMs);
+    }
+
+    [Fact]
+    public void ColdStoreWindowAfterThreeSeconds_CanStillBeRestored()
+    {
+        var windows = new Windows();
+        windows.FindWindow = _ => windows.WaitMs < 3000 ? IntPtr.Zero : new IntPtr(404);
+        Assert.True(WindowsAppForeground.Restore(new(null, "Pkg!App"), windows, windows.Delay, () => windows.WaitMs));
+        Assert.Equal(new IntPtr(404), windows.LastActivated);
+        Assert.Equal(3000, windows.WaitMs);
+        Assert.Equal(1, windows.Activations);
     }
 }

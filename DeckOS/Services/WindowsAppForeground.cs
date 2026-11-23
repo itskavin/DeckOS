@@ -68,15 +68,20 @@ internal static class WindowsAppForeground
         }
     }
 
-    internal static bool Restore(Target target, IWindows windows, Action<int> delay)
+    internal static bool Restore(Target target, IWindows windows, Action<int> delay, Func<long>? elapsedMilliseconds = null)
     {
-        // Immediate warm-app attempt; at most two seconds waiting for a cold app window.
+        // Immediate warm-app attempt; four-second deadline for cold Store/Electron windows.
         // No watcher survives the launch and a confirmed foreground window stops retries.
-        for (var attempt = 0; attempt <= 40; attempt++)
+        var timer = Stopwatch.StartNew();
+        elapsedMilliseconds ??= () => timer.ElapsedMilliseconds;
+        for (var attempt = 0; attempt <= 80; attempt++)
         {
+            if (attempt > 0 && elapsedMilliseconds() >= 4000) return false;
             var window = windows.Find(target);
             if (window != IntPtr.Zero && windows.Activate(window)) return true;
-            if (attempt < 40) delay(50);
+            var remaining = 4000 - elapsedMilliseconds();
+            if (remaining <= 0) return false;
+            if (attempt < 80) delay((int)Math.Min(50, remaining));
         }
         return false;
     }
@@ -138,7 +143,11 @@ internal static class WindowsAppForeground
         public bool Activate(IntPtr window)
         {
             if (!IsWindow(window)) return false;
-            if (IsIconic(window)) ShowWindowAsync(window, 9 /* RESTORE */);
+            if (IsIconic(window))
+            {
+                Log.Debug("AppActivator: restoring minimized HWND {Window}", window);
+                ShowWindowAsync(window, 9 /* RESTORE */);
+            }
             else if (!IsWindowVisible(window)) ShowWindowAsync(window, 5 /* SHOW */);
 
             SetForegroundWindow(window);
