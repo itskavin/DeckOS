@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>DeckOS — Turn any phone into a Stream Deck. Free and open source.</title>
+  <meta name="description" content="DeckOS turns any Android phone, iPhone or iPad into a Stream Deck for Windows, macOS and Linux. OBS, Discord, Spotify, Twitch, Home Assistant and more built in. Unlimited pages. No account, no cloud. Free and open source.">
+  <link rel="canonical" href="https://itskavin.github.io/DeckOS/">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="color-scheme" content="dark light">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="DeckOS">
+  <meta property="og:title" content="DeckOS — Your phone is the Stream Deck">
+  <meta property="og:description" content="Any phone. Any computer. 15+ integrations, unlimited pages, no account, no cloud. Free and open source.">
+  <meta property="og:url" content="https://itskavin.github.io/DeckOS/">
+  <meta property="og:image" content="https://itskavin.github.io/DeckOS/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="DeckOS: a phone showing a deck of rounded buttons next to a laptop running the DeckOS command center">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DeckOS — Your phone is the Stream Deck">
+  <meta name="twitter:description" content="Any phone. Any computer. 15+ integrations, unlimited pages, no account, no cloud. Free and open source.">
+  <meta name="twitter:image" content="https://itskavin.github.io/DeckOS/og.png">
+
+  <link rel="icon" href="logo.png" sizes="192x192" type="image/png">
+  <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="site.webmanifest">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&display=swap"></noscript>
+  <link rel="stylesheet" href="styles.css">
+
+  <script>
+    // Apply the saved theme before first paint so there is no flash.
+    (function () {
+      var d = document.documentElement;
+      d.classList.add('js');
+      var t = null;
+      try { t = localStorage.getItem('deckos-theme'); } catch (e) {}
+      if (t === 'light' || t === 'dark') d.setAttribute('data-theme', t);
+      else t = window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      d.setAttribute('data-effective', t);
+      if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) d.classList.add('motion');
+    })();
+  </script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "DeckOS",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows, macOS, Linux, Android, iOS, iPadOS",
+    "description": "Turn any phone into a Stream Deck for your computer. Free and open source.",
+    "url": "https://itskavin.github.io/DeckOS/",
+    "downloadUrl": "https://github.com/itskavin/DeckOS/releases/latest",
+    "license": "https://www.apache.org/licenses/LICENSE-2.0",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- Icon sprite: UI glyphs (stroke) + brand marks from Simple Icons 15.0.0 (CC0). -->
+<svg width="0" height="0" class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8"/></symbol>
+    <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M15 9.3V5a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 5.1 2.1M19 10v1a7 7 0 0 1-.9 3.4M5 10v1a7 7 0 0 0 11.9 5M12 18v4M8 22h8M2 2l20 20"/></symbol>
+    <symbol id="i-record" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5" fill="currentColor"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2.5"/><path d="M16 10.5l6-3.5v10l-6-3.5z"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><path d="M10 2h4M12 14l3-3"/><circle cx="12" cy="14" r="8"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M6.5 9l3 3-3 3M12.5 15h5"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2V17h6v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4M3 12h18"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="M19 20L9 12l10-8z" fill="currentColor"/><path d="M5 19V5"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M5 4l10 8-10 8z" fill="currentColor"/><path d="M19 5v14"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l13 7.5-13 7.5z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 1.5v3M15 1.5v3M9 19.5v3M15 19.5v3M19.5 9h3M19.5 15h3M1.5 9h3M1.5 15h3"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3v3M21 14v.01M14 21h.01M17 21h4v-4"/></symbol>
+    <symbol id="i-usb" viewBox="0 0 24 24"><circle cx="10" cy="7" r="1"/><circle cx="4" cy="20" r="1"/><path d="M4.7 19.3L19 5M21 3l-3 1 2 2zM9.3 7.7L5 12l2 5M10 14l5 2 3.5-3.5M18 12l1-1 1 1-1 1z"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M5 12.6a10 10 0 0 1 14 0M8.5 16.1a5 5 0 0 1 7 0M2 8.8a15 15 0 0 1 20 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.9 4.2A9.1 9.1 0 0 1 12 4c7 0 10 8 10 8a13.2 13.2 0 0 1-1.7 2.7M6.6 6.6A13.5 13.5 0 0 0 2 12s3 8 10 8a9.7 9.7 0 0 0 5.4-1.6M2 2l20 20M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+    <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M2 2l20 20M5.8 5.8A7 7 0 0 0 7 19h10.2M21.5 15.6A4.5 4.5 0 0 0 17.5 9h-1.8A7 7 0 0 0 9 5.2"/></symbol>
+    <symbol id="i-user-off" viewBox="0 0 24 24"><circle cx="11" cy="8" r="4"/><path d="M3 21a8 8 0 0 1 12.5-6.6M17 16l5 5M22 16l-5 5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2l10 5-10 5L2 7z"/><path d="M2 12l10 5 10-5M2 17l10 5 10-5"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-toggle" viewBox="0 0 24 24"><rect x="1.5" y="6" width="21" height="12" rx="6"/><circle cx="16" cy="12" r="3"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2.5h7.5A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></symbol>
+    <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+    <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect x="13" y="13" width="8" height="8" rx="2"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M10 13h4M7 16h10"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 10v4M6 6v12M10 3v18M14 8v8M18 5v14M22 10v4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/></symbol>
+    <symbol id="i-windows" viewBox="0 0 24 24"><path d="M3 5.6l7.4-1v7H3zM11.4 4.4L21 3v8.6h-9.6zM3 12.6h7.4v7l-7.4-1zM11.4 12.6H21V21l-9.6-1.3z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h8A2.5 2.5 0 0 1 16 5.5v5a2.5 2.5 0 0 1-2.5 2.5H8l-3.5 3v-3A2.5 2.5 0 0 1 3 10.5z" fill="currentColor" fill-opacity=".92" stroke="none"/><path d="M18.5 9.5A2.5 2.5 0 0 1 21 12v4.5a2.5 2.5 0 0 1-1.5 2.3V21l-3.2-2H11a2.5 2.5 0 0 1-2.4-1.8" fill="currentColor" fill-opacity=".72" stroke="none"/></symbol>
+    <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M6.5 7.5h11a4.5 4.5 0 0 1 4.4 3.6l.8 4.2a2.6 2.6 0 0 1-4.4 2.3L15 15.5H9l-3.3 2.1a2.6 2.6 0 0 1-4.4-2.3l.8-4.2a4.5 4.5 0 0 1 4.4-3.6z"/><path d="M7.5 10v3.5M5.8 11.7h3.4M16 11h.01M18 13h.01"/></symbol>
+    <symbol id="i-shot" viewBox="0 0 24 24"><path d="M3.5 8V6a2.5 2.5 0 0 1 2.5-2.5h2M16 3.5h2A2.5 2.5 0 0 1 20.5 6v2M20.5 16v2a2.5 2.5 0 0 1-2.5 2.5h-2M8 20.5H6A2.5 2.5 0 0 1 3.5 18v-2"/><path d="M8.5 9.5h1.2l.9-1.3h2.8l.9 1.3h1.2a1 1 0 0 1 1 1V15a1 1 0 0 1-1 1H8.5a1 1 0 0 1-1-1v-4.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="12.8" r="1.6"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.8 8.2l-2.1 5.5-5.5 2.1 2.1-5.5z" fill="currentColor"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.8" fill="currentColor"/><path d="M8.3 8.3a5.2 5.2 0 0 0 0 7.4M15.7 8.3a5.2 5.2 0 0 1 0 7.4M5.4 5.4a9.3 9.3 0 0 0 0 13.2M18.6 5.4a9.3 9.3 0 0 1 0 13.2"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3.5"/><circle cx="9" cy="10" r="1.7"/><path d="M21 16l-5-5-9 9"/></symbol>
+    <symbol id="si-discord" viewBox="0 0 24 24"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></symbol>
+    <symbol id="si-obsstudio" viewBox="0 0 24 24"><path d="M12,24C5.383,24,0,18.617,0,12S5.383,0,12,0s12,5.383,12,12S18.617,24,12,24z M12,1.109 C5.995,1.109,1.11,5.995,1.11,12C1.11,18.005,5.995,22.89,12,22.89S22.89,18.005,22.89,12C22.89,5.995,18.005,1.109,12,1.109z M6.182,5.99c0.352-1.698,1.503-3.229,3.05-3.996c-0.269,0.273-0.595,0.483-0.844,0.78c-1.02,1.1-1.48,2.692-1.199,4.156 c0.355,2.235,2.455,4.06,4.732,4.028c1.765,0.079,3.485-0.937,4.348-2.468c1.848,0.063,3.645,1.017,4.7,2.548 c0.54,0.799,0.962,1.736,0.991,2.711c-0.342-1.295-1.202-2.446-2.375-3.095c-1.135-0.639-2.529-0.802-3.772-0.425 c-1.56,0.448-2.849,1.723-3.293,3.293c-0.377,1.25-0.216,2.628,0.377,3.772c-0.825,1.429-2.315,2.449-3.932,2.756 c-1.244,0.261-2.551,0.059-3.709-0.464c1.036,0.302,2.161,0.355,3.191-0.011c1.381-0.457,2.522-1.567,3.024-2.935 c0.556-1.49,0.345-3.261-0.591-4.54c-0.7-1.007-1.803-1.717-3.002-1.969c-0.38-0.068-0.764-0.098-1.148-0.134 c-0.611-1.231-0.834-2.66-0.528-3.996L6.182,5.99z"/></symbol>
+    <symbol id="si-spotify" viewBox="0 0 24 24"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></symbol>
+    <symbol id="si-twitch" viewBox="0 0 24 24"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/></symbol>
+    <symbol id="si-youtube" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></symbol>
+    <symbol id="si-homeassistant" viewBox="0 0 24 24"><path d="M22.939 10.627 13.061.749a1.505 1.505 0 0 0-2.121 0l-9.879 9.878C.478 11.21 0 12.363 0 13.187v9c0 .826.675 1.5 1.5 1.5h9.227l-4.063-4.062a2.034 2.034 0 0 1-.664.113c-1.13 0-2.05-.92-2.05-2.05s.92-2.05 2.05-2.05 2.05.92 2.05 2.05c0 .233-.041.456-.113.665l3.163 3.163V9.928a2.05 2.05 0 0 1-1.15-1.84c0-1.13.92-2.05 2.05-2.05s2.05.92 2.05 2.05a2.05 2.05 0 0 1-1.15 1.84v8.127l3.146-3.146A2.051 2.051 0 0 1 18 12.239c1.13 0 2.05.92 2.05 2.05s-.92 2.05-2.05 2.05c-.25 0-.488-.047-.709-.13L12.9 20.602v3.088h9.6c.825 0 1.5-.675 1.5-1.5v-9c0-.825-.477-1.977-1.061-2.561z"/></symbol>
+    <symbol id="si-philipshue" viewBox="0 0 24 24"><path d="M20.672 9.6c-2.043 0-3.505 1.386-3.682 3.416h-.664c-.247 0-.395.144-.395.384 0 .24.148.384.395.384h.661c.152 2.09 1.652 3.423 3.915 3.423.944 0 1.685-.144 2.332-.453.158-.075.337-.217.292-.471a.334.334 0 0 0-.15-.242c-.104-.065-.25-.072-.422-.02a7.93 7.93 0 0 0-.352.12c-.414.146-.771.273-1.599.273-1.75 0-2.908-1.023-2.952-2.605v-.025h5.444c.313 0 .492-.164.505-.463v-.058C23.994 9.865 21.452 9.6 20.672 9.6zm2.376 3.416h-5l.004-.035c.121-1.58 1.161-2.601 2.649-2.601 1.134 0 2.347.685 2.347 2.606zM9.542 10.221c0-.335-.195-.534-.52-.534s-.52.2-.52.534v2.795h1.04zm4.29 3.817c0 1.324-.948 2.361-2.16 2.361-1.433 0-2.13-.763-2.13-2.333v-.282h-1.04v.34c0 2.046.965 3.083 2.868 3.083 1.12 0 1.943-.486 2.443-1.445l.02-.036v.861c0 .334.193.534.519.534.325 0 .52-.2.52-.534v-2.803h-1.04zm.52-4.351c-.326 0-.52.2-.52.534v2.795h1.04v-2.795c0-.335-.195-.534-.52-.534zM3.645 9.6c-1.66 0-2.31 1.072-2.471 1.4l-.135.278V7.355c0-.347-.199-.562-.52-.562-.32 0-.519.215-.519.562v5.661h1.039v-.015c0-1.249.72-2.592 2.304-2.592 1.29 0 2.001.828 2.001 2.332v.275h1.04v-.246c0-2.044-.973-3.17-2.739-3.17zM0 16.558c0 .347.199.563.52.563.32 0 .519-.216.519-.563v-2.774H0zm5.344 0c0 .347.2.563.52.563s.52-.216.52-.563v-2.774h-1.04z"/></symbol>
+    <symbol id="si-steam" viewBox="0 0 24 24"><path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25 1.297.539 2.793-.076 3.332-1.375.263-.63.264-1.319.005-1.949s-.75-1.121-1.377-1.383c-.624-.26-1.29-.249-1.878-.03l1.523.63c.956.4 1.409 1.5 1.009 2.455-.397.957-1.497 1.41-2.454 1.012H7.54zm11.415-9.303c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.253 0-2.265-1.014-2.265-2.265z"/></symbol>
+    <symbol id="si-elgato" viewBox="0 0 24 24"><path d="m13.8818 8.3964.0261.0196 9.9494 5.7172c-.4884 2.729-1.9196 5.2223-4.0384 7.0253A11.9262 11.9262 0 0 1 12.097 24c-3.1925 0-6.1939-1.2477-8.4527-3.5144C1.3868 18.2188.1427 15.2044.1427 12c0-3.2042 1.244-6.2187 3.5015-8.4854C5.9019 1.248 8.9032 0 12.097 0c2.4394 0 4.7847.7333 6.783 2.1187 1.9526 1.354 3.4466 3.2357 4.3227 5.4422.1112.2829.2149.5736.3051.8657l-2.1255 1.2359a9.4924 9.4924 0 0 0-.2619-.8694c-1.354-3.8303-4.9813-6.4048-9.0237-6.4048C6.8171 2.3883 2.522 6.7005 2.522 12c0 5.2995 4.295 9.6115 9.5748 9.6115 2.052 0 4.0084-.6442 5.6596-1.8647 1.6172-1.1955 2.8036-2.8337 3.4309-4.7364l.0065-.0419L9.5906 8.3048v7.2256l4.0004-2.3138 2.06 1.1811-5.9962 3.4688-2.12-1.2126V7.1943l2.1174-1.2245 4.2309 2.4279-.0013-.0013"/></symbol>
+    <symbol id="si-apple" viewBox="0 0 24 24"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></symbol>
+    <symbol id="si-linux" viewBox="0 0 24 24"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z"/></symbol>
+    <symbol id="si-android" viewBox="0 0 24 24"><path d="M18.4395 5.5586c-.675 1.1664-1.352 2.3318-2.0274 3.498-.0366-.0155-.0742-.0286-.1113-.043-1.8249-.6957-3.484-.8-4.42-.787-1.8551.0185-3.3544.4643-4.2597.8203-.084-.1494-1.7526-3.021-2.0215-3.4864a1.1451 1.1451 0 0 0-.1406-.1914c-.3312-.364-.9054-.4859-1.379-.203-.475.282-.7136.9361-.3886 1.5019 1.9466 3.3696-.0966-.2158 1.9473 3.3593.0172.031-.4946.2642-1.3926 1.0177C2.8987 12.176.452 14.772 0 18.9902h24c-.119-1.1108-.3686-2.099-.7461-3.0683-.7438-1.9118-1.8435-3.2928-2.7402-4.1836a12.1048 12.1048 0 0 0-2.1309-1.6875c.6594-1.122 1.312-2.2559 1.9649-3.3848.2077-.3615.1886-.7956-.0079-1.1191a1.1001 1.1001 0 0 0-.8515-.5332c-.5225-.0536-.9392.3128-1.0488.5449zm-.0391 8.461c.3944.5926.324 1.3306-.1563 1.6503-.4799.3197-1.188.0985-1.582-.4941-.3944-.5927-.324-1.3307.1563-1.6504.4727-.315 1.1812-.1086 1.582.4941zM7.207 13.5273c.4803.3197.5506 1.0577.1563 1.6504-.394.5926-1.1038.8138-1.584.4941-.48-.3197-.5503-1.0577-.1563-1.6504.4008-.6021 1.1087-.8106 1.584-.4941z"/></symbol>
+    <symbol id="si-ios" viewBox="0 0 24 24"><path d="M1.1 6.05C.486 6.05 0 6.53 0 7.13A1.08 1.08 0 0 0 1.1 8.21C1.72 8.21 2.21 7.73 2.21 7.13C2.21 6.53 1.72 6.05 1.1 6.05M8.71 6.07C5.35 6.07 3.25 8.36 3.25 12C3.25 15.67 5.35 17.95 8.71 17.95C12.05 17.95 14.16 15.67 14.16 12C14.16 8.36 12.05 6.07 8.71 6.07M19.55 6.07C17.05 6.07 15.27 7.45 15.27 9.5C15.27 11.13 16.28 12.15 18.4 12.64L19.89 13C21.34 13.33 21.93 13.81 21.93 14.64C21.93 15.6 20.96 16.28 19.58 16.28C18.17 16.28 17.11 15.59 17 14.53H15C15.08 16.65 16.82 17.95 19.46 17.95C22.25 17.95 24 16.58 24 14.4C24 12.69 23 11.72 20.68 11.19L19.35 10.89C17.94 10.55 17.36 10.1 17.36 9.34C17.36 8.38 18.24 7.74 19.54 7.74C20.85 7.74 21.75 8.39 21.85 9.46H23.81C23.76 7.44 22.09 6.07 19.55 6.07M8.71 7.82C10.75 7.82 12.06 9.45 12.06 12C12.06 14.57 10.75 16.2 8.71 16.2C6.65 16.2 5.35 14.57 5.35 12C5.35 9.45 6.65 7.82 8.71 7.82M.111 9.31V17.76H2.1V9.31H.11Z"/></symbol>
+    <symbol id="si-github" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+    <symbol id="si-python" viewBox="0 0 24 24"><path d="M14.25.18l.9.2.73.26.59.3.45.32.34.34.25.34.16.33.1.3.04.26.02.2-.01.13V8.5l-.05.63-.13.55-.21.46-.26.38-.3.31-.33.25-.35.19-.35.14-.33.1-.3.07-.26.04-.21.02H8.77l-.69.05-.59.14-.5.22-.41.27-.33.32-.27.35-.2.36-.15.37-.1.35-.07.32-.04.27-.02.21v3.06H3.17l-.21-.03-.28-.07-.32-.12-.35-.18-.36-.26-.36-.36-.35-.46-.32-.59-.28-.73-.21-.88-.14-1.05-.05-1.23.06-1.22.16-1.04.24-.87.32-.71.36-.57.4-.44.42-.33.42-.24.4-.16.36-.1.32-.05.24-.01h.16l.06.01h8.16v-.83H6.18l-.01-2.75-.02-.37.05-.34.11-.31.17-.28.25-.26.31-.23.38-.2.44-.18.51-.15.58-.12.64-.1.71-.06.77-.04.84-.02 1.27.05zm-6.3 1.98l-.23.33-.08.41.08.41.23.34.33.22.41.09.41-.09.33-.22.23-.34.08-.41-.08-.41-.23-.33-.33-.22-.41-.09-.41.09zm13.09 3.95l.28.06.32.12.35.18.36.27.36.35.35.47.32.59.28.73.21.88.14 1.04.05 1.23-.06 1.23-.16 1.04-.24.86-.32.71-.36.57-.4.45-.42.33-.42.24-.4.16-.36.09-.32.05-.24.02-.16-.01h-8.22v.82h5.84l.01 2.76.02.36-.05.34-.11.31-.17.29-.25.25-.31.24-.38.2-.44.17-.51.15-.58.13-.64.09-.71.07-.77.04-.84.01-1.27-.04-1.07-.14-.9-.2-.73-.25-.59-.3-.45-.33-.34-.34-.25-.34-.16-.33-.1-.3-.04-.25-.02-.2.01-.13v-5.34l.05-.64.13-.54.21-.46.26-.38.3-.32.33-.24.35-.2.35-.14.33-.1.3-.06.26-.04.21-.02.13-.01h5.84l.69-.05.59-.14.5-.21.41-.28.33-.32.27-.35.2-.36.15-.36.1-.35.07-.32.04-.28.02-.21V6.07h2.09l.14.01zm-6.47 14.25l-.23.33-.08.41.08.41.23.33.33.23.41.08.41-.08.33-.23.23-.33.08-.41-.08-.41-.23-.33-.33-.23-.41-.08-.41.08z"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav" id="top">
+  <div class="nav-inner">
+    <a class="brand" href="#top" aria-label="DeckOS home">
+      <img src="logo.png" width="26" height="26" alt="">
+      <span>DeckOS</span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#integrations">Integrations</a>
+      <a href="#how">How it works</a>
+      <a href="#compare">Compare</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://itskavin.github.io/DeckOS/docs/">Docs</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="icon-btn" href="https://github.com/itskavin/DeckOS" aria-label="DeckOS on GitHub">
+        <svg class="b" aria-hidden="true"><use href="#si-github"/></svg>
+      </a>
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Switch to light theme">
+        <svg class="i sun" aria-hidden="true"><use href="#i-sun"/></svg>
+        <svg class="i moon" aria-hidden="true"><use href="#i-moon"/></svg>
+      </button>
+      <a class="btn btn-sm btn-primary" href="#download">Download</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="wrap hero-copy">
+      <p class="eyebrow hero-eyebrow">
+        <span class="pill">Free &amp; open source</span>
+        <span>Windows · macOS · Linux · Android · iPhone · iPad</span>
+      </p>
+      <h1 id="hero-title" class="display">
+        Your phone is<br><span class="grad">the Stream Deck.</span>
+      </h1>
+      <p class="lede">
+        DeckOS turns any phone into a deck of beautiful buttons for your computer.
+        Launch apps, fire shortcuts, run your stream, dim the lights — with one tap.
+        No hardware. No account. No catch.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-lg btn-primary" id="hero-download" href="https://github.com/itskavin/DeckOS/releases/latest" data-download>
+          <svg class="i" aria-hidden="true"><use href="#i-download"/></svg>
+          <span data-download-label>Download DeckOS</span>
+        </a>
+        <a class="btn btn-lg btn-ghost" href="https://github.com/itskavin/DeckOS">
+          <svg class="b" aria-hidden="true"><use href="#si-github"/></svg>
+          <span>View source</span>
+        </a>
+      </div>
+      <p class="fineprint" id="hero-note">Free forever · Apache-2.0 · <a href="#download">All platforms</a></p>
+    </div>
+
+    <!-- Live product render: laptop with the command center + landscape phone with the deck. -->
+    <div class="stage-wrap" id="stage-wrap" role="img" aria-label="A laptop running the DeckOS command center, mirroring a phone that shows a deck of dark rounded tiles with app icons, thin media glyphs, CPU and GPU gauges and a timer. Buttons light up as they are tapped and the deck swipes between pages.">
+      <div class="stage" id="stage" aria-hidden="true">
+        <div class="laptop">
+          <div class="lid">
+            <div class="cam"></div>
+            <div class="screen cc" id="cc">
+              <aside class="cc-side">
+                <div class="cc-device">
+                  <div class="cc-device-ic"><svg class="i"><use href="#i-laptop"/></svg></div>
+                  <div>
+                    <strong>Studio PC</strong>
+                    <span><i class="dot-live"></i>Connected</span>
+                    <small>Windows · 4 × 2 grid</small>
+                  </div>
+                </div>
+                <p class="cc-label">Pages</p>
+                <ul class="cc-pages" id="cc-pages">
+                  <li data-page="0"><span class="thumb" data-thumb="0"></span><span><b>Stream</b><small>Page 1 · 8/8</small></span></li>
+                  <li data-page="1"><span class="thumb" data-thumb="1"></span><span><b>Work</b><small>Page 2 · <em data-count>7</em>/8</small></span></li>
+                  <li data-page="2"><span class="thumb" data-thumb="2"></span><span><b>Home</b><small>Page 3 · 8/8</small></span></li>
+                  <li class="cc-new"><span class="thumb plus"><svg class="i"><use href="#i-plus"/></svg></span><span><b>New page</b></span></li>
+                </ul>
+                <div class="cc-side-foot">
+                  <span><svg class="i"><use href="#i-layers"/></svg>Integrations</span>
+                  <span><svg class="i"><use href="#i-bolt"/></svg>Automations</span>
+                  <span><svg class="i"><use href="#i-pen"/></svg>Appearance</span>
+                </div>
+              </aside>
+              <div class="cc-main">
+                <div class="cc-head">
+                  <div>
+                    <h3 id="cc-title">Stream</h3>
+                    <p>Click an empty slot to add · Drag from the library to a slot</p>
+                  </div>
+                  <div class="cc-tools">
+                    <svg class="i"><use href="#i-undo"/></svg>
+                    <svg class="i"><use href="#i-redo"/></svg>
+                    <span class="kbd">⌘K</span>
+                    <span class="live"><i class="dot-live"></i>LIVE</span>
+                  </div>
+                </div>
+                <div class="cc-mirror">
+                  <div class="mirror-frame"><div class="deck" data-deck="mirror"></div></div>
+                  <p class="cc-caption"><i class="dot-live"></i>Mirroring the phone · landscape</p>
+                </div>
+                <div class="cc-tabs"><span class="on">Apps</span><span>Actions</span><span>Integrations</span><span class="cc-search"><svg class="i"><use href="#i-search"/></svg>Search</span></div>
+                <p class="cc-label">Apps on this computer</p>
+                <div class="cc-lib" id="cc-lib"></div>
+              </div>
+              <div class="cursor" id="cursor"><svg viewBox="0 0 24 24"><path d="M5 2.5l13.5 12.2-6.3.5 3.7 7.3-2.6 1.3-3.7-7.4L5 20.5z"/></svg><span class="ghost" id="ghost"></span></div>
+            </div>
+          </div>
+          <div class="base"><span class="notch"></span></div>
+        </div>
+
+        <div class="phone">
+          <div class="phone-body">
+            <div class="phone-screen">
+              <div class="island"></div>
+              <div class="deck" data-deck="phone"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STATS ============ -->
+  <section class="stats wrap" aria-label="DeckOS at a glance">
+    <div class="stat" data-reveal><b>5</b><span>platforms — every phone, <br>every computer</span></div>
+    <div class="stat" data-reveal><b>15+</b><span>integrations <br>built in</span></div>
+    <div class="stat" data-reveal><b>∞</b><span>pages and buttons. <br>No 15-key ceiling.</span></div>
+    <div class="stat" data-reveal><b>$0</b><span>forever. <br>Open source.</span></div>
+  </section>
+
+  <!-- ============ STATEMENT ============ -->
+  <section class="statement wrap" aria-label="Why DeckOS">
+    <p class="scrub" data-scrub>Stop buying hardware for buttons. The best Stream Deck is the screen already in your pocket — and now it works with every computer you own.</p>
+  </section>
+
+  <!-- ============ INTEGRATIONS ============ -->
+  <section class="section" id="integrations" aria-labelledby="int-title">
+    <div class="wrap center-head">
+      <p class="eyebrow" data-reveal>Integrations</p>
+      <h2 id="int-title" class="h2" data-reveal>Works with everything<br><span class="muted">you already use.</span></h2>
+      <p class="sub" data-reveal>Built in, not bolted on. Each one shows live state right on the button — the record light, the muted mic, the song that's playing.</p>
+
+      <ul class="logo-wall" role="list">
+        <li data-reveal style="--c:#5865F2"><svg class="b"><use href="#si-discord"/></svg><b>Discord</b><span>Mute, deafen, channels, per-user volume</span></li>
+        <li data-reveal style="--c:#a5a5ad"><svg class="b"><use href="#si-obsstudio"/></svg><b>OBS Studio</b><span>Scenes, record, stream, sources, replay</span></li>
+        <li data-reveal style="--c:#1DB954"><svg class="b"><use href="#si-spotify"/></svg><b>Spotify</b><span>Player, like, playlists, album art</span></li>
+        <li data-reveal style="--c:#9146FF"><svg class="b"><use href="#si-twitch"/></svg><b>Twitch</b><span>Markers, clips, ads, polls, chat</span></li>
+        <li data-reveal style="--c:#FF0033"><svg class="b"><use href="#si-youtube"/></svg><b>YouTube</b><span>Live chat and viewer count</span></li>
+        <li data-reveal style="--c:#18BCF2"><svg class="b"><use href="#si-homeassistant"/></svg><b>Home Assistant</b><span>Lights, scenes, scripts, sensors</span></li>
+        <li data-reveal style="--c:#FF6A3D"><svg class="i"><use href="#i-bulb"/></svg><b>Tuya · Smart Life</b><span>Lights, plugs, dimmers, colours</span></li>
+        <li data-reveal style="--c:#A78BFA"><svg class="b"><use href="#si-philipshue"/></svg><b>Philips Hue</b><span>Lights, rooms and scenes</span></li>
+        <li data-reveal style="--c:#66C0F4"><svg class="b"><use href="#si-steam"/></svg><b>Steam</b><span>Launch games, with cover art</span></li>
+        <li data-reveal style="--c:#C084FC"><svg class="i"><use href="#i-bolt"/></svg><b>Streamer.bot</b><span>Run actions, with arguments</span></li>
+        <li data-reveal style="--c:#F472B6"><svg class="i"><use href="#i-sparkle"/></svg><b>VTube Studio</b><span>Hotkeys and models</span></li>
+        <li data-reveal style="--c:#FF9F0A"><svg class="i"><use href="#i-wave"/></svg><b>Soundboard</b><span>MyInstants sounds, routed to your mic</span></li>
+        <li data-reveal style="--c:#e5e5ea"><svg class="b"><use href="#si-elgato"/></svg><b>Stream Deck profiles</b><span>Import your Elgato setup</span></li>
+        <li data-reveal style="--c:#0A84FF"><svg class="i"><use href="#i-keyboard"/></svg><b>Shortcuts &amp; apps</b><span>Key combos, apps, files, URLs</span></li>
+        <li data-reveal style="--c:#30D158"><svg class="i"><use href="#i-volume"/></svg><b>Media &amp; volume</b><span>Play, skip, per-app mixer, devices</span></li>
+        <li data-reveal style="--c:#64D2FF"><svg class="i"><use href="#i-cpu"/></svg><b>System monitors</b><span>Live CPU, GPU, RAM, network</span></li>
+        <li data-reveal style="--c:#FFD60A"><svg class="i"><use href="#i-timer"/></svg><b>Timers</b><span>Countdown, stopwatch, pomodoro</span></li>
+        <li data-reveal style="--c:#BF5AF2"><svg class="i"><use href="#i-terminal"/></svg><b>Scripts &amp; webhooks</b><span>Shell, Python, HTTP requests</span></li>
+      </ul>
+      <p class="tm">Product names and logos are trademarks of their respective owners. DeckOS is an independent open-source project and is not affiliated with or endorsed by them.</p>
+    </div>
+  </section>
+
+  <!-- ============ FEATURES (BENTO) ============ -->
+  <section class="section" id="features" aria-labelledby="feat-title">
+    <div class="wrap">
+      <p class="eyebrow" data-reveal>Features</p>
+      <h2 id="feat-title" class="h2" data-reveal>Everything a deck can do.<br><span class="muted">Then a lot more.</span></h2>
+
+      <div class="bento">
+        <article class="card c-wide c-shot" data-reveal>
+          <div class="card-copy">
+            <p class="kicker"><svg class="i"><use href="#i-laptop"/></svg>Command center</p>
+            <h3>Design your deck on the big screen.</h3>
+            <p>Pages with live thumbnails in the sidebar. A real-time mirror of your phone. Drag any app from <em>Apps on this computer</em> straight onto a slot. Undo, redo, done.</p>
+          </div>
+          <figure class="shot">
+            <picture>
+              <source srcset="assets/command-center.webp" type="image/webp">
+              <img src="assets/command-center.jpg" width="1440" height="500" loading="lazy" decoding="async" alt="The DeckOS command center: a sidebar of pages with thumbnails, and a live mirror of the phone deck: eight dark rounded tiles, each holding a full-colour app icon">
+            </picture>
+          </figure>
+        </article>
+
+        <article class="card c-palette" data-reveal>
+          <p class="kicker"><svg class="i"><use href="#i-command"/></svg>Command palette</p>
+          <h3>Any action, one keystroke away.</h3>
+          <div class="palette" aria-hidden="true">
+            <div class="pal-input"><svg class="i"><use href="#i-search"/></svg><span class="typed" data-typed="obs record"></span><span class="caret"></span></div>
+            <div class="pal-row on"><i style="--c:#ff453a"><svg class="i"><use href="#i-record"/></svg></i>OBS · Start recording<span>↵</span></div>
+            <div class="pal-row"><i style="--c:#5865F2"><svg class="b"><use href="#si-discord"/></svg></i>Discord · Toggle mute</div>
+            <div class="pal-row"><i style="--c:#1DB954"><svg class="b"><use href="#si-spotify"/></svg></i>Spotify · Like song</div>
+          </div>
+          <p class="foot"><span class="kbd">⌘</span><span class="kbd">K</span> on Mac · <span class="kbd">Ctrl</span><span class="kbd">K</span> on Windows and Linux</p>
+        </article>
+
+        <article class="card c-live" data-reveal>
+          <p class="kicker"><svg class="i"><use href="#i-gauge"/></svg>Live tiles</p>
+          <h3>Buttons that know what's happening.</h3>
+          <div class="mini-deck" aria-hidden="true">
+            <div class="mtile gauge" data-gauge="cpu" style="--c:#30d158"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="33"/><circle class="arc" cx="40" cy="40" r="33" pathLength="100"/></svg><b>37%</b><small>CPU</small></div>
+            <div class="mtile gauge" data-gauge="gpu" style="--c:#ff9f0a"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="33"/><circle class="arc" cx="40" cy="40" r="33" pathLength="100"/></svg><b>68%</b><small>GPU</small></div>
+            <div class="mtile" style="--c:#ff453a" data-blink><svg class="i"><use href="#i-record"/></svg></div>
+            <div class="mtile"><span class="appic art"><svg class="i"><use href="#i-music"/></svg></span></div>
+          </div>
+          <p class="foot">CPU, GPU, RAM and network gauges update every second. Timers, clocks, weather and now-playing too.</p>
+        </article>
+
+        <article class="card c-toggle" data-reveal>
+          <p class="kicker"><svg class="i"><use href="#i-toggle"/></svg>Two-state buttons &amp; sliders</p>
+          <h3>Flip it. Slide it.</h3>
+          <div class="toggle-demo" aria-hidden="true">
+            <div class="mtile flip" style="--c:#ff453a"><svg class="i a"><use href="#i-mic"/></svg><svg class="i b2"><use href="#i-mic-off"/></svg></div>
+            <div class="slider"><svg class="i"><use href="#i-volume"/></svg><div class="track"><span class="fill"></span></div></div>
+          </div>
+          <p class="foot">Each state gets its own icon and glow. Sliders for system, mic or a single app's volume.</p>
+        </article>
+
+        <article class="card c-auto" data-reveal>
+          <p class="kicker"><svg class="i"><use href="#i-bolt"/></svg>Automations</p>
+          <h3>Buttons that press themselves.</h3>
+          <ul class="triggers" aria-label="Example automations">
+            <li><i style="--c:#ffd60a"><svg class="i"><use href="#i-clock"/></svg></i><span><b>Every weekday at 9:00</b>Open the Work page</span></li>
+            <li><i style="--c:#a5a5ad"><svg class="b"><use href="#si-obsstudio"/></svg></i><span><b>When OBS opens</b>Switch to Stream</span></li>
+            <li><i style="--c:#30d158"><svg class="i"><use href="#i-sun"/></svg></i><span><b>When the computer wakes</b>Desk lights on</span></li>
+          </ul>
+        </article>
+
+        <article class="card c-multi" data-reveal>
+          <p class="kicker"><svg class="i"><use href="#i-flow"/></svg>Multi-actions</p>
+          <h3>One tap. A whole routine.</h3>
+          <ol class="chain" aria-label="Example multi-action: go live">
+            <li style="--c:#ff453a"><svg class="i"><use href="#i-mic"/></svg>Unmute mic</li>
+            <li style="--c:#ff9f0a"><svg class="i"><use href="#i-video"/></svg>Scene: Camera</li>
+            <li style="--c:#ff453a"><svg class="i"><use href="#i-record"/></svg>Start stream</li>
+            <li style="--c:#9146FF"><svg class="b"><use href="#si-twitch"/></svg>Drop a marker</li>
+          </ol>
+          <p class="foot">Chain steps with delays and conditions. Add long-press and double-tap actions to any button.</p>
+        </article>
+
+        <article class="card c-pages" data-reveal>
+          <p class="kicker"><svg class="i"><use href="#i-folder"/></svg>Pages &amp; folders</p>
+          <h3>Unlimited. Actually unlimited.</h3>
+          <div class="stack" aria-hidden="true">
+            <span style="--n:3"></span><span style="--n:2"></span><span style="--n:1"></span>
+            <div class="stack-top">
+              <i style="--c:#0a84ff"></i><i style="--c:#30d158"></i><i style="--c:#ff9f0a"></i><i style="--c:#bf5af2"></i>
+              <i style="--c:#ff453a"></i><i style="--c:#64d2ff"></i><i style="--c:#ffd60a"></i><i class="fold" style="--c:#ffb340"></i>
+            </div>
+          </div>
+          <p class="foot">Swipe between as many pages as you like. Folders inside pages. Buttons that span several cells.</p>
+        </article>
+
+        <article class="card c-small" data-reveal>
+          <i class="big-ic" style="--c:#e5e5ea"><svg class="b"><use href="#si-elgato"/></svg></i>
+          <h3>Bring your Stream Deck profiles.</h3>
+          <p>Import Elgato profiles and keep your muscle memory.</p>
+        </article>
+
+        <article class="card c-small" data-reveal>
+          <i class="big-ic" style="--c:#0a84ff"><svg class="i"><use href="#i-qr"/></svg></i>
+          <h3>Share a whole profile by QR.</h3>
+          <p>Or by link. Your friend scans it, the deck appears.</p>
+        </article>
+
+        <article class="card c-small" data-reveal>
+          <i class="big-ic" style="--c:#30d158"><svg class="i"><use href="#i-usb"/></svg></i>
+          <h3>Wired, when Wi-Fi isn't.</h3>
+          <p>Android phones also connect over a USB cable.</p>
+        </article>
+
+        <article class="card c-wide c-real" data-reveal>
+          <div class="card-copy">
+            <p class="kicker"><svg class="i"><use href="#i-phone"/></svg>On your phone</p>
+            <h3>Big, soft, unmistakable buttons.</h3>
+            <p>Squircle tiles you can hit without looking. Media keys, volume, mic and screenshots out of the box. Light, dark and OLED themes, accent colours and haptics.</p>
+          </div>
+          <figure class="shot phone-shot">
+            <picture>
+              <source srcset="assets/phone-media.webp" type="image/webp">
+              <img src="assets/phone-media.jpg" width="1688" height="780" loading="lazy" decoding="async" alt="The DeckOS phone app in landscape: eight large dark rounded tiles with thin white glyphs for screenshot, mute, volume down, volume up, microphone, previous, play and next">
+            </picture>
+          </figure>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ HOW IT WORKS ============ -->
+  <section class="section" id="how" aria-labelledby="how-title">
+    <div class="wrap">
+      <p class="eyebrow" data-reveal>How it works</p>
+      <h2 id="how-title" class="h2" data-reveal>Set up in a minute.<br><span class="muted">Three steps, no sign-up.</span></h2>
+      <ol class="steps">
+        <li class="step" data-reveal>
+          <div class="step-vis os-row" aria-hidden="true">
+            <i><svg class="i"><use href="#i-windows"/></svg></i>
+            <i><svg class="b"><use href="#si-apple"/></svg></i>
+            <i><svg class="b"><use href="#si-linux"/></svg></i>
+          </div>
+          <span class="step-n">1</span>
+          <h3>Install on your computer.</h3>
+          <p>Windows gets an installer that keeps itself up to date. On macOS and Linux it runs quietly in the background.</p>
+        </li>
+        <li class="step" data-reveal>
+          <div class="step-vis" aria-hidden="true">
+            <svg class="qr" viewBox="0 0 29 29" id="qr"></svg>
+          </div>
+          <span class="step-n">2</span>
+          <h3>Scan the QR code.</h3>
+          <p>Open DeckOS on your phone and point it at the code. It finds your computer on its own — or plug an Android phone in over USB.</p>
+        </li>
+        <li class="step" data-reveal>
+          <div class="step-vis tap-vis" aria-hidden="true">
+            <div class="mtile tap" style="--c:#6f78ff"><span class="appic" style="--g1:#8f96ff;--g2:#4a51d2"><svg class="i"><use href="#i-chat"/></svg></span></div>
+            <span class="ripple"></span>
+          </div>
+          <span class="step-n">3</span>
+          <h3>Tap.</h3>
+          <p>That's it. Build pages in the command center and every change lands on your phone instantly.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============ PRIVACY ============ -->
+  <section class="section privacy" id="privacy" aria-labelledby="priv-title">
+    <div class="wrap center-head">
+      <p class="eyebrow" data-reveal>Privacy</p>
+      <h2 id="priv-title" class="h2" data-reveal>Nothing leaves<br><span class="grad">your desk.</span></h2>
+      <p class="sub" data-reveal>Your phone talks straight to your computer over your own network. There is no DeckOS server in between — there is no DeckOS server at all.</p>
+
+      <div class="net" data-reveal aria-hidden="true">
+        <div class="node"><svg class="i"><use href="#i-laptop"/></svg><b>Your computer</b><small>Runs the actions</small></div>
+        <div class="wire">
+          <span class="cloud"><svg class="i"><use href="#i-cloud-off"/></svg>No cloud</span>
+          <span class="line"><i></i><i></i><i></i></span>
+          <small>Local network · auto-discovery · QR pairing<br>or USB on Android</small>
+        </div>
+        <div class="node"><svg class="i"><use href="#i-phone"/></svg><b>Your phone</b><small>Shows the deck</small></div>
+      </div>
+
+      <ul class="pillars" role="list">
+        <li data-reveal><svg class="i"><use href="#i-user-off"/></svg><b>No account.</b><span>Install it and go. Nothing to sign up for, nothing to log into.</span></li>
+        <li data-reveal><svg class="i"><use href="#i-cloud-off"/></svg><b>No cloud.</b><span>Your buttons, pages and settings live on your own devices.</span></li>
+        <li data-reveal><svg class="i"><use href="#i-eye-off"/></svg><b>No telemetry.</b><span>No analytics, no tracking, no phoning home.</span></li>
+        <li data-reveal><svg class="i"><use href="#i-code"/></svg><b>Open source.</b><span>Don't take our word for it — read every line on GitHub.</span></li>
+      </ul>
+      <p class="tm">Integrations you switch on (Spotify, Twitch, Home Assistant…) talk directly from your computer to that service.</p>
+    </div>
+  </section>
+
+  <!-- ============ COMPARE ============ -->
+  <section class="section" id="compare" aria-labelledby="cmp-title">
+    <div class="wrap">
+      <p class="eyebrow" data-reveal>Compare</p>
+      <h2 id="cmp-title" class="h2" data-reveal>The honest comparison.</h2>
+      <p class="sub" data-reveal>Hardware decks have real, clicky keys — that's worth something. Here's everything else.</p>
+
+      <div class="table-wrap" data-reveal>
+        <table class="cmp">
+          <caption class="sr-only">DeckOS compared with PhoneDeck and Elgato Stream Deck hardware</caption>
+          <thead>
+            <tr>
+              <th scope="col"><span class="sr-only">Feature</span></th>
+              <th scope="col" class="us"><img src="logo.png" width="22" height="22" alt="">DeckOS</th>
+              <th scope="col">PhoneDeck</th>
+              <th scope="col">Elgato Stream Deck<small>hardware</small></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Price</th><td class="us"><b>Free, forever</b></td><td>Free · Pro features planned</td><td>About $150–$250</td></tr>
+            <tr><th scope="row">Controller</th><td class="us"><b>Android, iPhone, iPad</b></td><td>iPhone (iOS 17+)</td><td>Dedicated device</td></tr>
+            <tr><th scope="row">Computer</th><td class="us"><b>Windows, macOS, Linux</b></td><td>macOS 14+</td><td>Windows, macOS</td></tr>
+            <tr><th scope="row">Buttons</th><td class="us"><b>Unlimited pages</b></td><td>Unlimited pages</td><td>6–32 physical keys, plus pages</td></tr>
+            <tr><th scope="row">OBS, Discord, Spotify, Twitch, smart home</th><td class="us"><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span>Built in</td><td>Apps, shortcuts, system keys</td><td><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span>Via plugins</td></tr>
+            <tr><th scope="row">Live gauges, timers, two-state buttons</th><td class="us"><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span></td><td>Not listed</td><td><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span></td></tr>
+            <tr><th scope="row">Multi-actions &amp; automations</th><td class="us"><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span>Time, app-open, wake</td><td>Context profiles planned</td><td><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span>Multi-actions, per-app profiles</td></tr>
+            <tr><th scope="row">Import Stream Deck profiles</th><td class="us"><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span></td><td>Not listed</td><td>Native</td></tr>
+            <tr><th scope="row">Connection</th><td class="us"><b>Local network + USB (Android)</b></td><td>Wi-Fi</td><td>USB</td></tr>
+            <tr><th scope="row">Account or cloud required</th><td class="us"><b>No</b></td><td>No</td><td>No</td></tr>
+            <tr><th scope="row">Open source</th><td class="us"><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span>Apache-2.0</td><td><span class="no" role="img" aria-label="No"><svg class="i"><use href="#i-x"/></svg></span></td><td><span class="no" role="img" aria-label="No"><svg class="i"><use href="#i-x"/></svg></span></td></tr>
+            <tr><th scope="row">Physical, tactile keys</th><td class="us"><span class="no" role="img" aria-label="No"><svg class="i"><use href="#i-x"/></svg></span>Touchscreen</td><td><span class="no" role="img" aria-label="No"><svg class="i"><use href="#i-x"/></svg></span>Touchscreen</td><td><span class="yes" role="img" aria-label="Yes"><svg class="i"><use href="#i-check"/></svg></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tm">PhoneDeck details from phonedeck.io as of November 2026. Elgato price is the typical range across Stream Deck models. Spotted something out of date? <a href="https://github.com/itskavin/DeckOS/issues">Open an issue</a>.</p>
+    </div>
+  </section>
+
+  <!-- ============ FAQ ============ -->
+  <section class="section" id="faq" aria-labelledby="faq-title">
+    <div class="wrap narrow">
+      <p class="eyebrow" data-reveal>FAQ</p>
+      <h2 id="faq-title" class="h2" data-reveal>Questions, answered.</h2>
+      <div class="faq">
+        <details data-reveal>
+          <summary>Is DeckOS really free?</summary>
+          <p>Yes. DeckOS is open source under the Apache-2.0 licence. There's no subscription, no paid tier and no limit on pages or buttons.</p>
+        </details>
+        <details data-reveal>
+          <summary>Which devices does it work with?</summary>
+          <p>The deck runs on Android phones and tablets, iPhone and iPad. The companion app runs on Windows 10 (1809 or later, 64-bit), macOS (Apple Silicon and Intel) and Linux (x64 and arm64). The macOS and Linux versions run as a background service and are newer than the Windows one.</p>
+        </details>
+        <details data-reveal>
+          <summary>Do my phone and computer need to be on the same Wi-Fi?</summary>
+          <p>They need to be on the same local network — the phone finds the computer automatically, or you pair by scanning a QR code. Android phones can also connect over a USB cable, no Wi-Fi needed. Guest networks that isolate devices from each other will block the connection.</p>
+        </details>
+        <details data-reveal>
+          <summary>How do I use it on an iPhone or iPad?</summary>
+          <p>Scan the pairing QR code from your computer and the deck opens right in Safari — nothing to install. A native iOS app is part of the same open-source project; see the <a href="https://itskavin.github.io/DeckOS/docs/">docs</a> for install options.</p>
+        </details>
+        <details data-reveal>
+          <summary>Does anything get sent to the internet?</summary>
+          <p>Not by DeckOS. There's no account, no server and no telemetry. The only internet traffic comes from integrations you choose to connect, like Spotify or Twitch — and that goes straight from your computer to that service.</p>
+        </details>
+        <details data-reveal>
+          <summary>Can I bring my Elgato Stream Deck setup?</summary>
+          <p>Yes. DeckOS imports Elgato Stream Deck profiles, so you don't have to rebuild your pages by hand.</p>
+        </details>
+        <details data-reveal>
+          <summary>Do the integrations need anything extra?</summary>
+          <p>Some services have their own requirements: Spotify playback control needs Spotify Premium, and the soundboard plays into your mic through a virtual audio cable. The docs walk through each integration.</p>
+        </details>
+        <details data-reveal>
+          <summary>Windows says the installer is unrecognised. Is it safe?</summary>
+          <p>SmartScreen warns about apps that aren't yet widely downloaded. Every release is built in the open by GitHub Actions from the public source code — you can check exactly what went into it.</p>
+        </details>
+        <details data-reveal>
+          <summary>How is DeckOS related to DroidDeck?</summary>
+          <p>DeckOS is built on <a href="https://github.com/ggfto/DroidDeck">DroidDeck</a> by ggfto, an open-source Android-to-Windows deck. DeckOS takes it to every phone and every desktop, with a redesigned app and command center.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DOWNLOAD / FINAL CTA ============ -->
+  <section class="section final" id="download" aria-labelledby="dl-title">
+    <div class="final-glow" aria-hidden="true"></div>
+    <div class="wrap">
+      <img class="final-icon" src="logo.png" width="88" height="88" alt="" data-reveal>
+      <h2 id="dl-title" class="display final-title" data-reveal>Your Stream Deck is<br><span class="grad">already in your pocket.</span></h2>
+      <p class="sub center" data-reveal>Install DeckOS on your computer and your phone. Free, forever.</p>
+
+      <div class="dl-grid">
+        <a class="dl" data-os="windows" data-reveal href="https://github.com/itskavin/DeckOS/releases/latest">
+          <i><svg class="i"><use href="#i-windows"/></svg></i>
+          <b>Windows</b><span>Windows 10 1809+ · 64-bit</span>
+          <em>Installer · updates itself</em>
+        </a>
+        <a class="dl" data-os="mac" data-reveal href="https://github.com/itskavin/DeckOS/releases/latest">
+          <i><svg class="b"><use href="#si-apple"/></svg></i>
+          <b>macOS</b><span>Apple Silicon &amp; Intel</span>
+          <em>App · runs at login</em>
+        </a>
+        <a class="dl" data-os="linux" data-reveal href="https://github.com/itskavin/DeckOS/releases/latest">
+          <i><svg class="b"><use href="#si-linux"/></svg></i>
+          <b>Linux</b><span>x64 &amp; arm64</span>
+          <em>systemd user service</em>
+        </a>
+        <a class="dl" data-os="android" data-reveal href="https://github.com/itskavin/DeckOS/releases/latest">
+          <i><svg class="b"><use href="#si-android"/></svg></i>
+          <b>Android</b><span>Android 7.0+</span>
+          <em>APK · Wi-Fi or USB</em>
+        </a>
+        <a class="dl" data-os="ios" data-reveal href="https://itskavin.github.io/DeckOS/docs/">
+          <i><svg class="b"><use href="#si-ios"/></svg></i>
+          <b>iPhone &amp; iPad</b><span>Opens in Safari</span>
+          <em>Scan the QR · no install</em>
+        </a>
+      </div>
+      <p class="fineprint center">All downloads come from <a href="https://github.com/itskavin/DeckOS/releases/latest">GitHub Releases</a>, built in the open by GitHub Actions.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap foot-grid">
+    <div class="foot-brand">
+      <a class="brand" href="#top"><img src="logo.png" width="26" height="26" alt=""><span>DeckOS</span></a>
+      <p>Turn any phone into a Stream Deck for your computer. Free and open source.</p>
+    </div>
+    <nav aria-label="Product">
+      <h3>Product</h3>
+      <a href="#download">Download</a>
+      <a href="https://github.com/itskavin/DeckOS/releases">Releases</a>
+      <a href="https://itskavin.github.io/DeckOS/docs/">Documentation</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <nav aria-label="Project">
+      <h3>Project</h3>
+      <a href="https://github.com/itskavin/DeckOS">GitHub</a>
+      <a href="https://github.com/itskavin/DeckOS/issues">Report a bug</a>
+      <a href="https://github.com/itskavin/DeckOS/blob/main/CONTRIBUTING.md">Contribute</a>
+      <a href="https://github.com/itskavin/DeckOS/blob/main/LICENSE">Licence (Apache-2.0)</a>
+    </nav>
+    <div class="credits">
+      <h3>Credits</h3>
+      <p>DeckOS is based on <a href="https://github.com/ggfto/DroidDeck">DroidDeck</a> by <a href="https://github.com/ggfto">ggfto</a>. Brand icons from <a href="https://simpleicons.org">Simple Icons</a>.</p>
+    </div>
+  </div>
+  <div class="wrap foot-base">
+    <p>© 2026 DeckOS contributors. Not affiliated with Elgato, Corsair or PhoneDeck.</p>
+    <a href="#top">Back to top ↑</a>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>

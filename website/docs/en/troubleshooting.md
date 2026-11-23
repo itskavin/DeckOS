@@ -1,0 +1,64 @@
+# Troubleshooting
+
+## The phone can't find or connect to the PC
+
+The status chip at the top of the deck shows the connection: **Connected to** your PC (green),
+**Reconnecting…** or **Not connected**. Tap it for what to do next. If it doesn't turn green:
+
+1. **Same network**: phone and PC must be on the same local network. Guest Wi-Fi networks and
+   "AP isolation" block devices from seeing each other.
+2. **Firewall**: use **Allow through firewall (local network)** in the tray menu, or allow TCP 4787 and UDP 7573 by hand (see [Installation](getting-started/installation.md#firewall)),
+   and make sure Windows marks your network as **Private**.
+3. **DeckOS is running**: look for the tray icon. On the PC, `http://localhost:4787/api/ping`
+   should return `{"ok":true,...}`.
+4. **Wrong IP**: on PCs with several network adapters, VPNs or virtual adapters (Hyper-V, WSL,
+   VirtualBox), the QR may contain the wrong address. Find the right one with `ipconfig` and type it
+   manually in **Server IP**.
+5. **"Server not found"** during search: discovery uses broadcast, which some routers block.
+   Type the IP manually.
+6. **Still nothing?** Connect with a [USB cable](getting-started/browser-usb.md#usb): it doesn't depend
+   on the network or the firewall.
+
+## The USB connection doesn't connect
+
+- The tray item **USB connection (cable)** must be checked and say *waiting for phone* or
+  *1 phone connected*.
+- **USB debugging** must be on, and the phone must have accepted the **Allow USB debugging?** prompt.
+  If you dismissed it, unplug and plug the cable back in. Some cables only charge: try another one.
+- The phone must be paired with this PC first, with the QR code; the cable doesn't carry the key.
+- If downloading `adb` failed, check the internet connection and click the tray item again.
+
+## "Authentication failed… Pair again"
+
+The key on the phone doesn't match the PC's (for example, after the `apikey` file was deleted). Scan
+the QR code again from the tray menu.
+
+## The configurator shows 401 errors
+
+The configurator only signs in automatically on the PC itself. Open it at `http://localhost:4787/`
+on the machine where DeckOS runs.
+
+## A hotkey does nothing
+
+- The keys go to the **focused window**: make sure the right app is in front.
+- Apps running **as administrator** ignore input from a non-administrator DeckOS.
+- Games with anti-cheat may ignore simulated keys.
+- Check the syntax in [Keyboard shortcuts](guide/hotkeys.md).
+
+## Media buttons do nothing
+
+Check that the app shows up in Windows' media overlay (press a media key on the keyboard). If the
+log mentions the media broker hanging, wait a minute or restart the app that is playing.
+
+## Integrations
+
+- **Discord**: see [Discord → Troubleshooting](integrations/discord.md#troubleshooting).
+- **OBS**: see [OBS → Troubleshooting](integrations/obs.md#troubleshooting).
+- **Tuya**: *"QR expirado; gere outro."* — the QR is valid for 2 minutes. Brand apps refusing the
+  QR: see [Tuya](integrations/tuya.md#linking-your-account).
+
+## Logs
+
+DeckOS writes a log to **`%LocalAppData%\DeckOS.log`** (next to the `DeckOS` folder, not
+inside it). Attach it when you [open an issue](https://github.com/itskavin/DeckOS/issues) — it never
+contains your API key.

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeckOS — shared profile</title>
+<meta name="description" content="A DeckOS profile someone shared with you. Import it into DeckOS on your PC as a new profile.">
+<meta name="theme-color" content="#0d0d0f">
+<meta name="robots" content="noindex">
+<link rel="icon" href="../logo.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=block" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../logo.png" alt="">DeckOS</a>
+    <nav>
+      <a href="../gallery/" data-t="gallery">Gallery</a>
+      <a href="../docs/guide/import-share/" data-docs data-t="docs" class="hide-xs">Docs</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  <h1 id="name">DeckOS</h1>
+  <p class="lead" id="lead" data-t="lead">A DeckOS profile someone shared with you. Import it into DeckOS on your PC: it comes in as a new profile, and nothing in your deck is deleted.</p>
+  <div id="deck" class="deck"></div>
+  <div id="act"></div>
+  <div class="actions" id="more">
+    <a class="btn btn-ghost" href="../#download" data-t="get">Don't have DeckOS yet?</a>
+  </div>
+  <p class="hint" id="hint" data-t="hint">Buttons that open programs or send shortcuts only come in when you import on the PC itself.</p>
+  <div class="empty" id="bad" hidden>
+    <p class="error" id="bad-msg" data-t="bad">This profile link is incomplete or corrupted.</p>
+    <p class="hint" id="bad-help" data-t="badHelp">Ask for the link again, or start from one of the ready-made decks.</p>
+    <a class="btn btn-primary" href="../gallery/" data-t="browse">Browse the gallery</a>
+  </div>
+  <noscript><p class="hint noscript">This page needs JavaScript to read the shared profile.</p></noscript>
+</main>
+<script src="../lang.js"></script>
+<script src="share.js"></script>
+<script>
+const T = {
+  en: { gallery: "Gallery", docs: "Docs",
+    lead: "A DeckOS profile someone shared with you. Import it into DeckOS on your PC: it comes in as a new profile, and nothing in your deck is deleted.",
+    get: "Don't have DeckOS yet?",
+    hint: "Buttons that open programs or send shortcuts only come in when you import on the PC itself.",
+    bad: "This profile link is incomplete or corrupted.", badHelp: "Ask for the link again, or start from one of the ready-made decks.",
+    empty: "No profile in this link.", emptyHelp: "Ask whoever sent it for the full link, or start from one of the ready-made decks.",
+    broken: "This page didn't load completely.", brokenHelp: "Reload to try again, or start from one of the ready-made decks.",
+    browse: "Browse the gallery", shared: "Shared profile" },
+};
+
+const data = location.hash.slice(1);
+// Sem share.js não dá para ler o perfil; sem # não há perfil; o resto é link incompleto ou corrompido.
+const DD = window.DDShare;
+const why = !DD ? "broken" : !data ? "empty" : "bad";
+const decoded = DD && data ? DD.decode(data) : Promise.reject(new Error(why));
+decoded.catch(() => {});
+
+function draw(lang) {
+  const t = T[lang];
+  DDLang.apply(lang);
+  document.querySelectorAll("[data-t]").forEach(el => { if (t[el.dataset.t]) el.textContent = t[el.dataset.t]; });
+  document.getElementById("bad-msg").textContent = t[why];
+  document.getElementById("bad-msg").classList.toggle("error", why !== "empty");
+  document.getElementById("bad-help").textContent = t[why + "Help"];
+  if (DD && data && !DD.supported) document.getElementById("bad-msg").textContent = DD.STR[lang].unsupported;
+  decoded.then(profile => {
+    const name = profile.name || t.shared;
+    document.getElementById("name").textContent = name;
+    document.title = `${name} — DeckOS`;
+    DD.render(profile, document.getElementById("deck"));
+    DD.mountActions(document.getElementById("act"), {
+      lang, title: document.title, data, shareHref: () => location.href, phoneNote: true,
+    });
+  }, () => {
+    document.getElementById("name").textContent = t.shared;
+    document.title = `${t.shared} — DeckOS`;
+    for (const id of ["lead", "deck", "act", "more", "hint"]) document.getElementById(id).hidden = true;
+    document.getElementById("bad").hidden = false;
+  });
+}
+draw("en");
+</script>
+</body>
+</html>

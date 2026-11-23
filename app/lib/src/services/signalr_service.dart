@@ -1,0 +1,659 @@
+import 'dart:async';
+
+import 'package:deckos/core/core.dart';
+import 'package:deckos/src/connection/usb_route.dart';
+import 'package:deckos/src/services/client_identity.dart';
+import 'package:flutter/foundation.dart';
+import 'package:signalr_netcore/signalr_client.dart';
+import 'package:signalr_netcore/iretry_policy.dart';
+import 'package:logging/logging.dart';
+
+/// Reconecta indefinidamente com backoff limitado. A politica padrao do
+/// signalr_netcore desiste apos ~30s ([0,2,10,30]s), entao um celular que perde
+/// a rede por mais que isso nunca reconectava sozinho (so reabrindo a tela).
+class _InfiniteRetryPolicy implements IRetryPolicy {
+  @override
+  int? nextRetryDelayInMilliseconds(RetryContext retryContext) {
+    const steps = [0, 2000, 5000, 10000, 20000, 30000];
+    final n = retryContext.previousRetryCount;
+    return n < steps.length ? steps[n] : 30000; // depois, 30s pra sempre
+  }
+}
+
+class SystemStats {
+  final double cpuUsage; // % (0-100)
+  final double ramUsage; // % usada (0-100)
+  final double ramTotal; // MB
+  final double ramAvailable; // MB
+  final double netUp; // KB/s
+  final double netDown; // KB/s
+  final double gpuUsage; // % (0-100)
+  final List<DiskStat> disks; // unidades fixas, em ordem de letra
+
+  SystemStats({
+    this.cpuUsage = 0,
+    this.ramUsage = 0,
+    this.ramTotal = 0,
+    this.ramAvailable = 0,
+    this.netUp = 0,
+    this.netDown = 0,
+    this.gpuUsage = 0,
+    this.disks = const [],
+  });
+
+  /// % de RAM em uso (usa o valor do backend; se faltar, calcula de total/disponível).
+  double get ramUsedPercent => ramUsage > 0
+      ? ramUsage
+      : (ramTotal > 0 ? (ramTotal - ramAvailable) / ramTotal * 100 : 0);
+  double get ramUsedGb => (ramTotal - ramAvailable) / 1024.0;
+  double get ramTotalGb => ramTotal / 1024.0;
+
+  factory SystemStats.fromJson(Map<String, dynamic> json) {
+    double parseDouble(dynamic val) {
+      if (val == null) return 0;
+      if (val is num) return val.toDouble();
+      if (val is String) return double.tryParse(val) ?? 0;
+      return 0;
+    }
+
+    return SystemStats(
+      cpuUsage: parseDouble(json['cpuUsage'] ?? json['CpuUsage']),
+      ramUsage: parseDouble(json['ramUsage'] ?? json['RamUsage']),
+      ramTotal: parseDouble(json['ramTotal'] ?? json['RamTotal']),
+      ramAvailable: parseDouble(json['ramAvailable'] ?? json['RamAvailable']),
+      netUp: parseDouble(json['netUpKBps'] ?? json['NetUpKBps']),
+      netDown: parseDouble(json['netDownKBps'] ?? json['NetDownKBps']),
+      gpuUsage: parseDouble(json['gpuUsage'] ?? json['GpuUsage']),
+      disks: ((json['disks'] ?? json['Disks']) as List? ?? const [])
+          .whereType<Map>()
+          .map((d) => DiskStat(
+                name: '${d['name'] ?? d['Name'] ?? ''}',
+                label: '${d['label'] ?? d['Label'] ?? ''}',
+                totalBytes: parseDouble(d['totalBytes'] ?? d['TotalBytes']),
+                freeBytes: parseDouble(d['freeBytes'] ?? d['FreeBytes']),
+              ))
+          .toList(),
+    );
+  }
+}
+
+/// Uma unidade de disco do PC ("C:").
+class DiskStat {
+  final String name;
+  final String label;
+  final double totalBytes;
+  final double freeBytes;
+
+  const DiskStat({required this.name, this.label = '', this.totalBytes = 0, this.freeBytes = 0});
+
+  double get usedPercent => totalBytes > 0 ? (totalBytes - freeBytes) / totalBytes * 100 : 0;
+}
+
+class SignalRService {
+  SignalRService() {
+    effect(() {
+      AppLanguage.current.value;
+      untracked(_sendLanguage);
+    });
+  }
+
+  HubConnection? _hubConnection;
+  final _logger = Logger('SignalRService');
+  // Signals
+  final systemStats = signal<SystemStats>(SystemStats());
+  final connectionStatus = signal<String>("Disconnected");
+  final lastDebugData = signal<String>("No Data");
+  final currentUrl =
+      signal<String>("Not Initialized"); // DEBUG: Track current URL
+
+  // NEW: Real-time Volume/Media signals
+  final volumeUpdates = signal<Map<String, dynamic>>({});
+  final mediaStateUpdates = signal<Map<String, dynamic>?>(null);
+
+  // Incrementa quando o backend avisa que um perfil do deck mudou (sync ao vivo).
+  final deckUpdated = signal<int>(0);
+
+  // Estado de mute por processo (para botões toggle refletirem a realidade).
+  final muteStates = signal<Map<String, bool>>({});
+
+  // Estado do Discord (connected/mute/deaf) para botões de Discord refletirem.
+  final discordState =
+      signal<Map<String, dynamic>>({'connected': false, 'mute': false, 'deaf': false});
+
+  // Grade física do deck (rows/cols) reportada pelo celular; usada pelo configurador web.
+  final deckLayout = signal<Map<String, int>>({'rows': 3, 'columns': 5});
+
+  // Mídia tocando agora no PC (pra botões play/pause do deck refletirem o estado).
+  final mediaPlaying = signal<bool>(false);
+
+  // Estado do OBS (connected/currentScene/recording/streaming/...) pros botões refletirem.
+  final obsState = signal<Map<String, dynamic>>({'connected': false});
+
+  // Estado do plugin Tuya + os dispositivos. O backend só manda o snapshot completo em
+  // eventos raros (conectou, reenumerou); mudança de estado de aparelho chega em
+  // ReceiveTuyaDeviceState e é fundida aqui, pra não repassar a lista inteira a cada clique.
+  final tuyaState = signal<Map<String, dynamic>>({'paired': false, 'devices': []});
+
+  // Perfil do app em foco no PC ({profileId, app}); profileId nulo = app sem perfil.
+  final autoProfile = signal<Map<String, dynamic>>({});
+
+  // Estado dos demais provedores de ação (timers...), por evento SignalR. Os eventos
+  // vêm do schema (stateEvent) e são assinados sob demanda via [listenState].
+  final actionStates = signal<Map<String, Map<String, dynamic>>>({});
+  final Set<String> _stateEvents = {
+    // Botões de dois estados ligados, botões de informação e clientes conectados.
+    'ReceiveButtonToggles',
+    'ReceiveInfoState',
+    'ReceiveNowPlaying',
+    'ReceiveConnectedClients',
+  };
+
+  /// Assina um evento de estado de provedor. Idempotente; vale também depois de
+  /// reconectar (init re-registra tudo).
+  void listenState(String event) {
+    if (!_stateEvents.add(event)) return;
+    _registerStateHandler(event);
+  }
+
+  void _registerStateHandler(String event) {
+    // Os eventos que já têm signal próprio continuam nele.
+    if (const {'ReceiveObsState', 'ReceiveDiscordState', 'ReceiveTuyaState'}
+        .contains(event)) {
+      return;
+    }
+    _hubConnection?.on(event, (arguments) {
+      if (arguments == null || arguments.isEmpty) return;
+      try {
+        seedState(event, Map<String, dynamic>.from(arguments[0] as Map));
+      } catch (e) {
+        _logger.warning('Error parsing $event: $e');
+      }
+    });
+  }
+
+  /// Guarda o estado de um provedor. `_receivedAt` (ms) deixa o app extrapolar valores
+  /// que andam sozinhos, como o tempo de um timer, sem o PC mandar a cada segundo.
+  void seedState(String event, Map<String, dynamic> state) {
+    actionStates.value = {
+      ...actionStates.value,
+      event: {...state, '_receivedAt': DateTime.now().millisecondsSinceEpoch},
+    };
+  }
+
+  /// Estado atual publicado num evento de provedor ({} se nada chegou ainda).
+  Map<String, dynamic> stateOf(String event) {
+    switch (event) {
+      case 'ReceiveObsState':
+        return obsState.value;
+      case 'ReceiveDiscordState':
+        return discordState.value;
+      case 'ReceiveTuyaState':
+        return tuyaState.value;
+      default:
+        return actionStates.value[event] ?? const {};
+    }
+  }
+
+  // ---- Reconexao quando o hub nunca chegou a conectar ----
+  //
+  // O withAutomaticReconnect do signalr_netcore so vale para conexoes que FORAM
+  // estabelecidas e cairam depois. Se o start() inicial falha (backend fora do ar
+  // na hora em que o app abriu, ou queda enquanto o app ficou aberto), nao existe
+  // nenhuma nova tentativa: o servico ficava morto ate reiniciar o app, enquanto o
+  // REST voltava sozinho — dando o sintoma "os controles funcionam mas os dados
+  // nao atualizam", porque comando e REST e todo estado ao vivo e hub.
+  String? _lastBaseUrl;
+  String? _lastApiKey;
+  Timer? _retryTimer;
+  int _retryCount = 0;
+
+  /// Parada deliberada (updateUrl/dispose): nao reagendar reconexao.
+  bool _stopped = false;
+
+  /// O stop() de uma conexao cujo socket morreu sem fechar (cabo USB caiu no meio) pode
+  /// nunca terminar. A conexao ja saiu de _hubConnection: espera um pouco e segue.
+  static const _stopTimeout = Duration(seconds: 3);
+
+  void _scheduleRetry() {
+    if (_stopped) return;
+    final url = _lastBaseUrl;
+    if (url == null || url.isEmpty) return;
+    if (_retryTimer?.isActive ?? false) return; // ja tem uma tentativa agendada
+
+    const steps = [2000, 5000, 10000, 20000, 30000];
+    final delay = steps[_retryCount < steps.length ? _retryCount : steps.length - 1];
+    _retryCount++;
+    connectionStatus.value = 'Reconnecting in ${delay ~/ 1000}s...';
+
+    _retryTimer = Timer(Duration(milliseconds: delay), () async {
+      // init() e no-op enquanto _hubConnection nao for null, entao a instancia
+      // morta precisa sair da frente antes da nova tentativa.
+      final dead = _hubConnection;
+      _hubConnection = null;
+      try {
+        await dead?.stop().timeout(_stopTimeout);
+      } catch (_) {
+        // Conexao ja estava quebrada; nada a fazer.
+      }
+      // O cabo USB pode ter entrado ou saído: escolhe o caminho de novo e leva o REST junto.
+      final route = await UsbRoute.pick(url, apiKey: _lastApiKey);
+      if (route != url) Injector.get<DeckOSClient>().setBaseUrl(route);
+      await init(route, apiKey: _lastApiKey);
+    });
+  }
+
+  Future<String?>? _rerouting;
+
+  /// O adb reverse sumiu, mas o socket do hub já aberto segue vivo pelo adb (ele não
+  /// derruba conexões feitas): o hub não cai, nada escolhia o caminho de novo e o REST
+  /// insistia no 127.0.0.1 recusado. Escolhe de novo (só cabo ou o endereço salvo do PC
+  /// pareado) e leva REST e hub juntos. Devolve o endereço para repetir a requisição.
+  /// Só repete no PC da chave que a requisição já leva: se o usuário trocou de PC no
+  /// meio, a chave de um não vai para o outro.
+  Future<String?> rerouteFromUsb(String failedBaseUrl, String? apiKey) async {
+    if (!UsbRoute.isUsb(failedBaseUrl) || apiKey != _lastApiKey) return null;
+    final route =
+        await (_rerouting ??= _reroute().whenComplete(() => _rerouting = null));
+    return apiKey == _lastApiKey ? route : null;
+  }
+
+  Future<String?> _reroute() async {
+    final url = _lastBaseUrl;
+    // Outra requisição já trocou o caminho: repete no atual.
+    if (url == null || !UsbRoute.isUsb(url)) return url;
+    final route = await UsbRoute.pick(url, apiKey: _lastApiKey);
+    if (route == url || _lastBaseUrl != url) return _lastBaseUrl;
+    _logger.info('USB route gone, moving to the network address');
+    Injector.get<DeckOSClient>().setBaseUrl(route);
+    // Sem esperar o hub: a requisição recusada repete já no endereço novo.
+    unawaited(updateUrl(route, apiKey: _lastApiKey));
+    return route;
+  }
+
+  /// Encerra a conexao e cancela reconexoes pendentes.
+  Future<void> dispose() async {
+    _stopped = true;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    final conn = _hubConnection;
+    _hubConnection = null;
+    try {
+      await conn?.stop().timeout(_stopTimeout);
+    } catch (_) {}
+  }
+
+  /// Mascara o access_token da URL para log/exibição (a chave é um segredo).
+  static String _redactUrl(String url) =>
+      url.replaceAll(RegExp(r'access_token=[^&]+'), 'access_token=***');
+
+  Future<void> init(String baseUrl, {String? apiKey, bool waitForConnect = false}) async {
+    if (_hubConnection != null) return;
+
+    // Guardado para as retentativas — sem isto nao ha como refazer a conexao.
+    _lastBaseUrl = baseUrl;
+    _lastApiKey = apiKey;
+    _stopped = false;
+
+    // Normalize Base URL (handle relative path)
+    String hubUrl = baseUrl;
+    if (hubUrl.isEmpty) {
+      if (kIsWeb) {
+        // Use current window origin
+        hubUrl = '${Uri.base.origin}/deckHub';
+      } else {
+        _logger.warning('SignalR init skipped: Base URL is empty on mobile');
+        connectionStatus.value = "URL Empty";
+        currentUrl.value = "Empty (init called with empty baseUrl)";
+        return;
+      }
+    } else {
+      hubUrl = '$baseUrl/deckHub';
+    }
+
+    // Idioma das mensagens que o PC monta (erros dos botões de informação).
+    hubUrl += '${hubUrl.contains('?') ? '&' : '?'}lang=${AppLanguage.current.value}';
+
+    // SignalR via WebSocket autentica pela query string (?access_token=).
+    if (apiKey != null && apiKey.isNotEmpty) {
+      final sep = hubUrl.contains('?') ? '&' : '?';
+      hubUrl += '${sep}access_token=${Uri.encodeQueryComponent(apiKey)}';
+    }
+
+    // SEGURANÇA: a chave vai na query string (?access_token=) por exigência do
+    // WebSocket do SignalR, mas NÃO deve vazar em log nem no diálogo de debug (que
+    // mostra currentUrl). Guarda/loga só a versão com a chave mascarada.
+    currentUrl.value = _redactUrl(hubUrl);
+    _logger.info('Connecting to SignalR Hub at ${_redactUrl(hubUrl)}');
+    connectionStatus.value = "Connecting...";
+
+    try {
+      _hubConnection = HubConnectionBuilder()
+          .withUrl(hubUrl)
+          .withAutomaticReconnect(reconnectPolicy: _InfiniteRetryPolicy())
+          .build();
+    } catch (e) {
+      _logger.severe('Error building HubConnection: $e');
+      connectionStatus.value = "Build Error";
+      return;
+    }
+
+    _hubConnection?.on('ReceiveSystemStats', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          // Debug Raw Data
+          final raw = arguments[0].toString();
+          lastDebugData.value = "Data: $raw";
+
+          // SignalR parses JSON for us roughly, but we check type
+          final data = arguments[0] as Map<String, dynamic>;
+          systemStats.value = SystemStats.fromJson(data);
+        } catch (e) {
+          _logger.warning('Error parsing stats: $e');
+          lastDebugData.value = "Parse Error: $e";
+        }
+      } else {
+        lastDebugData.value = "Empty Args";
+      }
+    });
+
+    // NEW: Listen for Volume updates
+    _hubConnection?.on('ReceiveVolumeChange', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          final update = arguments[0] as Map<String, dynamic>;
+          final deviceId = update['deviceId'] as String;
+          final type = update['type'] as String;
+          final data = update['data'] as Map<String, dynamic>;
+
+          final current = Map<String, dynamic>.from(volumeUpdates.value);
+          current[deviceId] = {
+            'type': type,
+            'data': data,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          };
+          volumeUpdates.value = current;
+
+          _logger.info('Volume update: $deviceId ($type)');
+        } catch (e) {
+          _logger.warning('Error parsing ReceiveVolumeChange: $e');
+        }
+      }
+    });
+
+    // NEW: Listen for Media State updates
+    _hubConnection?.on('ReceiveMediaState', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          final update = arguments[0] as Map<String, dynamic>;
+          mediaStateUpdates.value = update;
+          _logger.info('Media update: ${update['sessionId']}');
+        } catch (e) {
+          _logger.warning('Error parsing ReceiveMediaState: $e');
+        }
+      }
+    });
+
+    // Deck mudou em outro cliente (ex.: editor no PC) → sinaliza para recarregar.
+    _hubConnection?.on('ReceiveDeckUpdate', (arguments) {
+      deckUpdated.value = deckUpdated.value + 1;
+      _logger.info('Deck update recebido');
+    });
+
+    // Estado de mute de um processo mudou → atualiza para os botões toggle.
+    _hubConnection?.on('ReceiveMuteState', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          final u = arguments[0] as Map<String, dynamic>;
+          final pn = u['processName'] as String?;
+          final muted = u['muted'];
+          if (pn != null && muted is bool) {
+            final cur = Map<String, bool>.from(muteStates.value);
+            cur[pn] = muted;
+            muteStates.value = cur;
+          }
+        } catch (e) {
+          _logger.warning('Error parsing ReceiveMuteState: $e');
+        }
+      }
+    });
+
+    // Estado do Discord mudou (mute/deaf) → atualiza para os botões de Discord.
+    _hubConnection?.on('ReceiveDiscordState', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          discordState.value =
+              Map<String, dynamic>.from(arguments[0] as Map);
+        } catch (e) {
+          _logger.warning('Error parsing ReceiveDiscordState: $e');
+        }
+      }
+    });
+
+    // Grade física mudou (o celular reportou) → o configurador web reage.
+    _hubConnection?.on('ReceiveLayoutUpdate', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          final m = arguments[0] as Map;
+          deckLayout.value = {
+            'rows': (m['rows'] as num).toInt(),
+            'columns': (m['columns'] as num).toInt(),
+          };
+        } catch (e) {
+          _logger.warning('Error parsing ReceiveLayoutUpdate: $e');
+        }
+      }
+    });
+
+    // Estado de reprodução de mídia (tocando?) → botões play/pause do deck refletem.
+    _hubConnection?.on('ReceiveMediaStatus', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          final m = arguments[0] as Map;
+          mediaPlaying.value = m['playing'] == true;
+        } catch (e) {
+          _logger.warning('Error parsing ReceiveMediaStatus: $e');
+        }
+      }
+    });
+
+    // Estado do OBS mudou (cena/gravando/transmitindo) → botões do deck refletem.
+    _hubConnection?.on('ReceiveObsState', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          obsState.value = Map<String, dynamic>.from(arguments[0] as Map);
+        } catch (e) {
+          _logger.warning('Error parsing ReceiveObsState: $e');
+        }
+      }
+    });
+
+    // Snapshot completo do plugin Tuya (conectou, reenumerou dispositivos).
+    _hubConnection?.on('ReceiveTuyaState', (arguments) {
+      if (arguments != null && arguments.isNotEmpty) {
+        try {
+          tuyaState.value = Map<String, dynamic>.from(arguments[0] as Map);
+        } catch (e) {
+          _logger.warning('Error parsing ReceiveTuyaState: $e');
+        }
+      }
+    });
+
+    // Um aparelho mudou de estado (push MQTT). Chega só o que mudou; fundimos no
+    // snapshot pra que o botão do deck repinte sem uma nova ida ao servidor.
+    _hubConnection?.on('ReceiveTuyaDeviceState', (arguments) {
+      if (arguments == null || arguments.isEmpty) return;
+      try {
+        final msg = Map<String, dynamic>.from(arguments[0] as Map);
+        final deviceId = msg['deviceId'];
+        final changes = Map<String, dynamic>.from(msg['status'] as Map);
+
+        final snapshot = Map<String, dynamic>.from(tuyaState.value);
+        final devices = List<dynamic>.from(snapshot['devices'] as List? ?? const []);
+
+        final index = devices.indexWhere((d) => (d as Map)['id'] == deviceId);
+        if (index < 0) return; // aparelho fora do cache: ignora até a próxima enumeração
+
+        final device = Map<String, dynamic>.from(devices[index] as Map);
+        device['status'] = {
+          ...Map<String, dynamic>.from(device['status'] as Map? ?? const {}),
+          ...changes,
+        };
+        devices[index] = device;
+
+        // Reatribui o mapa inteiro: mutar em profundidade não dispara o signal.
+        snapshot['devices'] = devices;
+        tuyaState.value = snapshot;
+      } catch (e) {
+        _logger.warning('Error parsing ReceiveTuyaDeviceState: $e');
+      }
+    });
+
+    for (final event in _stateEvents) {
+      _registerStateHandler(event);
+    }
+
+    _hubConnection?.on('ReceiveAutoProfile', (arguments) {
+      if (arguments == null || arguments.isEmpty) return;
+      try {
+        autoProfile.value = Map<String, dynamic>.from(arguments[0] as Map);
+      } catch (e) {
+        _logger.warning('Error parsing ReceiveAutoProfile: $e');
+      }
+    });
+
+    final conn = _hubConnection;
+    _hubConnection?.onclose(({error}) {
+      // Conexao ja trocada (retentativa ou updateUrl): o stop() dela nao reagenda.
+      if (!identical(_hubConnection, conn)) return;
+      connectionStatus.value = "Disconnected: $error";
+      // Cai aqui quando o servidor fecha a conexao ou o reconnect automatico
+      // desiste. Sem reagendar, o estado ao vivo nunca mais voltava.
+      _scheduleRetry();
+    });
+
+    _hubConnection?.onreconnecting(({error}) {
+      // Conexao abandonada (stop() que estourou o tempo): nao mexe na atual.
+      if (!identical(_hubConnection, conn)) return;
+      connectionStatus.value = "Reconnecting...";
+      // O reconnect automatico insiste no mesmo endereco para sempre: pelo cabo, no
+      // 127.0.0.1 depois que o adb reverse some (cabo saiu, adb reiniciou); pela rede,
+      // no IP do PC com o Wi-Fi fora, mesmo com o cabo ligado. A retentativa escolhe o
+      // caminho de novo: o cabo se ele aceita a chave, senao o endereco da rede.
+      if (UsbRoute.isSupported) _scheduleRetry();
+    });
+
+    _hubConnection?.onreconnected(({connectionId}) {
+      if (!identical(_hubConnection, conn)) return;
+      connectionStatus.value = "Connected";
+      _retryCount = 0;
+      // O cabo voltou antes da retentativa do onreconnecting: fica nesta conexão.
+      _retryTimer?.cancel();
+      // A URL da reconexão ainda tem o idioma de quando conectou.
+      unawaited(_sendLanguage());
+      unawaited(_registerClient());
+    });
+
+    final startFuture = _startConnection(conn!);
+    if (waitForConnect) {
+      await startFuture;
+    } else {
+      unawaited(startFuture);
+    }
+  }
+
+  Future<void> _startConnection(HubConnection conn) async {
+    try {
+      await conn.start();
+      if (!identical(_hubConnection, conn) || _stopped) return;
+      _logger.info('SignalR Connected');
+      connectionStatus.value = "Connected";
+      _retryCount = 0;
+      _retryTimer?.cancel();
+      unawaited(_sendLanguage());
+      unawaited(_registerClient());
+    } catch (e) {
+      if (!identical(_hubConnection, conn) || _stopped) return;
+      _logger.severe('SignalR Connection Failed: $e');
+      connectionStatus.value = "Conn Error: $e";
+      _scheduleRetry();
+    }
+  }
+
+  /// Avisa o PC do idioma do app (mudou nas configurações ou reconectou).
+  Future<void> _sendLanguage() async {
+    final conn = _hubConnection;
+    if (conn == null || conn.state != HubConnectionState.Connected) return;
+    try {
+      await conn.invoke('SetLanguage', args: [AppLanguage.current.value]);
+    } catch (_) {
+      // PC antigo sem SetLanguage: fica no idioma da conexão.
+    }
+  }
+
+  /// Registra papel/plataforma/modelo deste cliente no hub (fire-and-forget, sem travar
+  /// startup). Servidores antigos sem RegisterClient ignoram sem erro.
+  Future<void> _registerClient() async {
+    final conn = _hubConnection;
+    final baseUrl = _lastBaseUrl;
+    if (conn == null || conn.state != HubConnectionState.Connected || baseUrl == null) {
+      return;
+    }
+    try {
+      final payload = await ClientIdentity.buildPayload(baseUrl);
+      if (!identical(_hubConnection, conn) || conn.state != HubConnectionState.Connected) {
+        return;
+      }
+      await conn.invoke('RegisterClient', args: [payload]);
+    } catch (_) {
+      // PC antigo sem RegisterClient: segue conectado normalmente.
+    }
+  }
+
+  /// Tecla em modo "segurar": aperta no PC a tecla salva no botão (o PC lê qual é pelo
+  /// id). Devolve false sem conexão com o hub, para quem chamou cair no /press.
+  bool holdKey(String buttonId) => _invokeKey("HoldKey", buttonId);
+
+  /// Solta a tecla do [holdKey]. Se a conexão cair antes, o PC solta sozinho.
+  bool releaseKey(String buttonId) => _invokeKey("ReleaseKey", buttonId);
+
+  /// Tecla da superfície do Companion. Se a conexão cair, o PC solta sozinho.
+  void companionKey(int key, bool pressed) {
+    final conn = _hubConnection;
+    if (conn == null || conn.state != HubConnectionState.Connected) return;
+    conn.invoke("CompanionKey", args: [key, pressed]).catchError((e) {
+      _logger.warning("Error invoking CompanionKey: $e");
+      return null;
+    });
+  }
+
+  bool _invokeKey(String method, String buttonId) {
+    final conn = _hubConnection;
+    if (conn == null || conn.state != HubConnectionState.Connected) return false;
+    // Sem await: a ordem aperta/solta é a do envio, e o dedo não espera a resposta.
+    conn.invoke(method, args: [buttonId]).catchError((e) {
+      _logger.warning("Error invoking $method: $e");
+      return null;
+    });
+    return true;
+  }
+
+  Future<void> updateUrl(String baseUrl, {String? apiKey}) async {
+    // Marca como parada deliberada para o onclose do stop() abaixo nao agendar
+    // uma reconexao para a URL ANTIGA; o init() em seguida limpa a flag.
+    _stopped = true;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _retryCount = 0;
+
+    if (_hubConnection != null) {
+      final conn = _hubConnection!;
+      _hubConnection = null;
+      try {
+        // Sem limite, um stop() travado deixava _stopped ligado para sempre: nenhuma
+        // retentativa saia mais, nem com o Wi-Fi ou o cabo de volta.
+        await conn.stop().timeout(_stopTimeout);
+      } catch (_) {}
+    }
+    await init(baseUrl, apiKey: apiKey);
+  }
+}

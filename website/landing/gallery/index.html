@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeckOS Profile Gallery</title>
+<meta name="description" content="Ready-made DeckOS profiles for streaming, meetings, music, productivity and gaming. Import any of them into DeckOS on your PC as a new profile.">
+<meta property="og:title" content="DeckOS Profile Gallery">
+<meta property="og:description" content="Ready-made decks for streaming, meetings, music, productivity and gaming. Import any of them into DeckOS on your PC as a new profile.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://itskavin.github.io/DeckOS/gallery/">
+<meta property="og:image" content="https://itskavin.github.io/DeckOS/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DeckOS Profile Gallery">
+<meta name="twitter:image" content="https://itskavin.github.io/DeckOS/og.png">
+<meta name="theme-color" content="#0d0d0f">
+<link rel="icon" href="../logo.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=block" rel="stylesheet">
+<link rel="stylesheet" href="../share/style.css">
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../logo.png" alt="">DeckOS</a>
+    <nav>
+      <a href="../docs/guide/import-share/" data-docs data-t="docs" class="hide-xs">Docs</a>
+      <a href="https://github.com/itskavin/DeckOS" class="hide-xs">GitHub</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  <h1 data-t="title">Profile gallery</h1>
+  <p class="lead" data-t="lead">Ready-made decks to start from. Each one comes into DeckOS on your PC as a new profile, so nothing you built is touched; then adjust names, scenes and shortcuts to your setup.</p>
+  <p class="hint" id="phone-hint" data-t="phone" hidden></p>
+  <p class="hint" data-t="share">Made a good one? In DeckOS, open the profile settings → Share, and send the link in Discussions on GitHub.</p>
+  <div id="cards" class="cards"></div>
+  <noscript><p class="hint noscript">The gallery needs JavaScript to draw the decks and build the import links.</p></noscript>
+</main>
+<script src="../lang.js"></script>
+<script src="../share/share.js"></script>
+<script src="profiles.js"></script>
+<script>
+const T = {
+  en: { title: "Profile gallery", docs: "Docs",
+    lead: "Ready-made decks to start from. Each one comes into DeckOS on your PC as a new profile, so nothing you built is touched; then adjust names, scenes and shortcuts to your setup.",
+    share: "Made a good one? In DeckOS, open the profile settings → Share, and send the link in Discussions on GitHub.",
+    phone: "On a phone? Importing happens on the Windows PC: “Send to my PC” shares the link so you can open it there.",
+    nodd: "Don't have DeckOS yet?" },
+};
+
+const cards = document.getElementById("cards");
+function draw(lang) {
+  if (!window.DDShare || !window.DDProfiles) { DDLang.apply(lang); return; }
+  const t = T[lang];
+  DDLang.apply(lang);
+  document.title = `${t.title} — DeckOS`;
+  document.querySelectorAll("[data-t]").forEach(el => { if (t[el.dataset.t]) el.textContent = t[el.dataset.t]; });
+  document.getElementById("phone-hint").hidden = DDShare.onWindows;
+  cards.textContent = "";
+  for (const { key, desc, profile } of DDProfiles.build(lang)) {
+    const card = document.createElement("article");
+    card.className = "card";
+    card.id = key;
+    card.innerHTML = `<div class="deck"></div><h2></h2><p></p><div class="act"></div><a class="nodd" href="../#download"></a>`;
+    card.querySelector(".nodd").textContent = t.nodd;
+    card.querySelector("h2").textContent = profile.name;
+    card.querySelector("p").textContent = desc;
+    DDShare.render(profile, card.querySelector(".deck"));
+    DDShare.mountActions(card.querySelector(".act"), {
+      lang, title: `${profile.name} — DeckOS`, data: DDShare.encode(profile),
+      shareHref: d => `../share/#${d}`, viewHref: d => `../share/#${d}`,
+    });
+    cards.append(card);
+  }
+}
+draw("en");
+if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+</script>
+</body>
+</html>

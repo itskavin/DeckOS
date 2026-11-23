@@ -1,0 +1,37 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    ["@semantic-release/changelog", { "changelogTitle": "# Changelog\n\n> DeckOS is based on [DroidDeck](https://github.com/ggfto/DroidDeck) by ggfto. The entries below\n> up to 1.14.0 are DroidDeck's history and keep their original names and links." }],
+    [
+      "@semantic-release/github",
+      {
+        "successComment": false,
+        "failComment": false,
+        "assets": [
+          { "path": "dist/velopack/DeckOS-Setup.exe", "label": "1. Windows app: installer (updates itself)" },
+          { "path": "dist/DeckOS-win-x64.zip", "label": "1. Windows app: portable .zip (no installer)" },
+          { "path": "dist/velopack/*.nupkg" },
+          { "path": "dist/velopack/releases.win.json" },
+          { "path": "dist/velopack/assets.win.json" },
+          { "path": "dist/velopack/RELEASES" },
+          { "path": "dist/DeckOS.apk", "label": "2. Android app (.apk)" },
+          { "path": "dist/DeckOS-macos-arm64.app.zip", "label": "3. macOS app: Apple Silicon (.app)" },
+          { "path": "dist/DeckOS-macos-x64.app.zip", "label": "3. macOS app: Intel (.app)" },
+          { "path": "dist/DeckOS-osx-arm64.tar.gz", "label": "3. macOS server: Apple Silicon (.tar.gz)" },
+          { "path": "dist/DeckOS-osx-x64.tar.gz", "label": "3. macOS server: Intel (.tar.gz)" },
+          { "path": "dist/DeckOS-linux-x64.tar.gz", "label": "4. Linux server: x64 (.tar.gz)" },
+          { "path": "dist/DeckOS-linux-arm64.tar.gz", "label": "4. Linux server: ARM64 / Raspberry Pi (.tar.gz)" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["CHANGELOG.md"],
+        "message": "chore(release): ${nextRelease.version} [skip ci]"
+      }
+    ]
+  ]
+}

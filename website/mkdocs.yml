@@ -1,0 +1,137 @@
+site_name: DeckOS
+site_description: Turn an Android phone into a Stream Deck for your Windows PC.
+site_url: https://itskavin.github.io/DeckOS/docs/
+repo_url: https://github.com/itskavin/DeckOS
+repo_name: itskavin/DeckOS
+edit_uri: edit/main/website/docs/
+copyright: DeckOS · <a href="https://github.com/itskavin/DeckOS/blob/main/LICENSE">Apache License 2.0</a>
+docs_dir: docs
+site_dir: ../_site/docs
+
+theme:
+  name: material
+  custom_dir: overrides
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Pairing: getting-started/pairing.md
+      - Your first button: getting-started/first-button.md
+      - Browser & USB: getting-started/browser-usb.md
+      - Configurator: getting-started/configurator.md
+  - Guide:
+      - Buttons & actions: guide/actions.md
+      - Keyboard shortcuts: guide/hotkeys.md
+      - Multi-action: guide/multi-action.md
+      - Monitors & info: guide/monitors.md
+      - Profiles: guide/profiles.md
+      - Automations: guide/automations.md
+      - Import & share: guide/import-share.md
+      - Appearance: guide/appearance.md
+      - Troubleshooting: troubleshooting.md
+  - Integrations:
+      - Streaming:
+          - Discord: integrations/discord.md
+          - OBS Studio: integrations/obs.md
+          - Twitch: integrations/twitch.md
+          - YouTube: integrations/youtube.md
+          - Streamer.bot: integrations/streamerbot.md
+          - VTube Studio: integrations/vtubestudio.md
+          - Soundboard: integrations/soundboard.md
+      - Studio (radio & TV):
+          - Tally & ON AIR: integrations/tally.md
+          - vMix: integrations/vmix.md
+          - Companion: integrations/companion.md
+          - Radio (mAirList, RadioDJ): integrations/radio.md
+          - Network (OSC, TCP, UDP): integrations/network.md
+      - Lights & smart home:
+          - Smart home (Tuya): integrations/tuya.md
+          - Home Assistant: integrations/homeassistant.md
+          - Philips Hue: integrations/hue.md
+          - Elgato Key Light: integrations/elgato.md
+          - Govee: integrations/govee.md
+          - MQTT: integrations/mqtt.md
+      - Audio & media:
+          - Spotify: integrations/spotify.md
+          - Voicemeeter: integrations/voicemeeter.md
+          - Mixer & media: integrations/mixer-media.md
+  - Reference:
+      - Files & settings: reference/files.md
+      - API: reference/api.md
+  - Developers:
+      - Architecture: developers/architecture.md
+      - Building from source: developers/building.md
+
+extra_css:
+  - assets/extra.css
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+
+extra:
+  homepage: https://itskavin.github.io/DeckOS/
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/itskavin/DeckOS
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - def_list
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.keys

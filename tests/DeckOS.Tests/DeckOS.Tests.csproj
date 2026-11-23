@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Os mesmos dois alvos do servidor: o net8.0 roda o build do macOS/Linux (no CI de cada um). -->
+  <PropertyGroup>
+    <!-- Fora do Windows o restore nem tenta o TFM do Windows (NETSDK1100 no macOS/Linux). -->
+    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net8.0-windows10.0.17763.0;net8.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(OS)' != 'Windows_NT'">net8.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.6.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Moq" Version="4.20.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+  </ItemGroup>
+
+  <!-- Testes do mixer e da midia do Windows (NAudio/Core Audio, WinRT): so existem no alvo do Windows. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <Compile Remove="MixerChannelEnrichmentTests.cs;MixerControllerTests.cs;MixerServiceTests.cs;MediaCommandStateTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\DeckOS\DeckOS.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea to discuss
+    url: https://github.com/itskavin/DeckOS/discussions
+    about: Ask how to do something, share your deck or float an idea before it becomes a request.
+  - name: Documentation and troubleshooting
+    url: https://itskavin.github.io/DeckOS/docs/troubleshooting/
+    about: SmartScreen, firewall, the phone not finding the PC and other common problems.
