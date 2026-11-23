@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:deckos/core/core.dart';
 import 'package:deckos/src/services/signalr_service.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 
+import '../deck_preloader.dart';
 import 'button_look.dart';
 
 /// Botões sem visual próprio: atalho, abrir app, multi-ação, webhook, Steam (com a capa)...
@@ -83,14 +86,7 @@ class MixerButtonRenderer extends ButtonRenderer {
   void init(ButtonLook look) {
     final process = _muteProcess(look);
     if (process == null) return;
-    try {
-      final sr = Injector.get<SignalRService>();
-      if (sr.muteStates.value.containsKey(process)) return;
-      Injector.get<DeckOSClient>().getMuteState(process).then((muted) {
-        if (muted == null) return;
-        sr.muteStates.value = {...sr.muteStates.value, process: muted};
-      }).catchError((_) {});
-    } catch (_) {}
+    unawaited(DeckPreloader.instance.ensureMuteState(process));
   }
 
   @override

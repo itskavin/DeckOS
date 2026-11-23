@@ -71,6 +71,12 @@ namespace DeckOS.Hubs
                 }
                 catch { }
             }
+            // Limites de IA normalizados (secret-free): envia o ultimo snapshot ao conectar.
+            if (_services.GetService(typeof(Services.AiLimits.AiLimitsService)) is Services.AiLimits.AiLimitsService aiLimits)
+            {
+                try { await Clients.Caller.SendAsync(Services.AiLimits.AiLimitsService.HubEvent, aiLimits.GetCachedSnapshotForHub()); }
+                catch { }
+            }
             // Perfil do app em foco, para o celular abrir ja no perfil certo.
             if (_services.GetService(typeof(Services.ForegroundWatcher)) is Services.ForegroundWatcher fg)
             {

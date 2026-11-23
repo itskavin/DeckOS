@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 
 import '../buttons/colors.dart';
+import '../slider_state_store.dart';
 
 /// Tipos de botão controle deslizante (dynamicType).
 const sliderTypes = {'volume_slider'};
@@ -49,58 +50,90 @@ class _SliderDeckButtonState extends State<SliderDeckButton> {
   /// Mensagem do PC quando o alvo falhou (integração desconectada, luz fora da rede).
   String? _error;
   bool _dragging = false;
-  Timer? _poll;
   Timer? _sendTimer;
   int? _pending;
 
-  String get _target => widget.button.dynamicParameters?['target'] ?? 'output';
+  late String _sliderKey;
+  void Function()? _storeCleanup;
+
+  SliderStateStore get _store => SliderStateStore.instance;
+  String get _target => (widget.button.dynamicParameters?['target'] ?? 'output').trim().toLowerCase();
   String get _app => widget.button.dynamicParameters?['app'] ?? '';
 
   /// Parâmetros do alvo (sem o próprio alvo).
-  Map<String, String> get _params =>
-      Map.of(widget.button.dynamicParameters ?? const {})..remove('target');
-  DeckOSClient get _client => Injector.get<DeckOSClient>();
+  Map<String, String> get _params => SliderStateStore.cleanParams(widget.button.dynamicParameters);
 
   @override
   void initState() {
     super.initState();
-    _refresh();
-    // O volume também muda por fora (teclas do PC, outro botão): relê de tempos em tempos.
-    _poll = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (!_dragging) _refresh();
+    _sliderKey = _store.acquire(_target, _params);
+    // Hidrata na hora do cache compartilhado (zero flash de '—' / 0% se já pré-carregado).
+    _applySnapshot(_store.peekKey(_sliderKey), notify: false);
+    _storeCleanup = effect(() {
+      _store.revision.value;
+      untracked(() {
+        if (!mounted || _dragging) return;
+        _applySnapshot(_store.peekKey(_sliderKey), notify: true);
+      });
     });
+    // Coalesce com pré-carregamento em voo; no-op se o valor acabou de ser lido.
+    unawaited(_store.ensureLoaded(_target, _params));
   }
 
   @override
   void didUpdateWidget(SliderDeckButton old) {
     super.didUpdateWidget(old);
-    if (old.button.dynamicParameters != widget.button.dynamicParameters) _refresh();
+    final nextKey = SliderStateStore.keyFor(_target, _params);
+    if (nextKey != _sliderKey) {
+      if (_dragging) {
+        _store.endDrag(_sliderKey);
+        _dragging = false;
+      }
+      _sendTimer?.cancel();
+      _pending = null;
+      _store.release(_sliderKey);
+      _sliderKey = _store.acquire(_target, _params);
+      _applySnapshot(_store.peekKey(_sliderKey), notify: true);
+      unawaited(_store.ensureLoaded(_target, _params));
+    }
   }
 
   @override
   void dispose() {
-    _poll?.cancel();
+    if (_dragging) {
+      _store.endDrag(_sliderKey);
+      _dragging = false;
+    }
     _sendTimer?.cancel();
+    _storeCleanup?.call();
+    _storeCleanup = null;
+    _store.release(_sliderKey);
     super.dispose();
   }
 
-  Future<void> _refresh() async {
-    Map<String, dynamic>? state;
-    String? error;
-    try {
-      state = await _client.getSlider(_target, _params);
-    } catch (e) {
-      error = '$e'.replaceFirst('Exception: ', '');
+  void _applySnapshot(SliderSnapshot? snap, {required bool notify}) {
+    if (snap == null) return;
+    final changed = _volume != snap.volume ||
+        _max != snap.max ||
+        _mute != snap.mute ||
+        _serverLabel != snap.serverLabel ||
+        _text != snap.text ||
+        _error != snap.error;
+    if (!changed) return;
+    void assign() {
+      _error = snap.error;
+      _volume = snap.volume;
+      _max = snap.max;
+      _mute = snap.mute;
+      _serverLabel = snap.serverLabel;
+      _text = snap.text;
     }
-    if (!mounted || _dragging) return;
-    setState(() {
-      _error = error;
-      _volume = (state?['volume'] as num?)?.round();
-      _max = ((state?['max'] as num?)?.round() ?? 100).clamp(1, 1 << 30);
-      _mute = state?['mute'] == true;
-      _serverLabel = state?['label'] as String?;
-      _text = state?['text'] as String?;
-    });
+
+    if (notify && mounted) {
+      setState(assign);
+    } else {
+      assign();
+    }
   }
 
   /// Manda no máximo ~12 vezes por segundo enquanto arrasta; o último valor sempre vai.
@@ -114,7 +147,9 @@ class _SliderDeckButtonState extends State<SliderDeckButton> {
   void _flush() {
     final v = _pending;
     _pending = null;
-    if (v != null) _client.setSlider(_target, _params, v);
+    if (v != null) {
+      unawaited(_store.writeVolume(_target, _params, v));
+    }
   }
 
   void _update(Offset local, Size size, bool vertical) {
@@ -125,16 +160,15 @@ class _SliderDeckButtonState extends State<SliderDeckButton> {
     if (v == _volume) return;
     setState(() {
       _volume = v;
+      _error = null;
+      if (v > 0 && (_target == 'output' || _target == 'input' || _target == 'app')) {
+        _mute = false;
+      }
       // Posição da música: mostra o tempo enquanto arrasta.
-      if (_target == 'media') _text = _clock(v);
+      if (_target == 'media') _text = SliderStateStore.formatClock(v);
     });
+    _store.setOptimistic(_target, _params, v);
     _send(v);
-  }
-
-  static String _clock(int seconds) {
-    final h = seconds ~/ 3600, m = (seconds % 3600) ~/ 60, s = seconds % 60;
-    final ss = s.toString().padLeft(2, '0');
-    return h > 0 ? '$h:${m.toString().padLeft(2, '0')}:$ss' : '$m:$ss';
   }
 
   static const _lights = {'tuya', 'homeassistant', 'hue', 'govee', 'keylight'};
@@ -247,14 +281,20 @@ class _SliderDeckButtonState extends State<SliderDeckButton> {
         );
         if (!widget.interactive) return content;
         void start(Offset p) {
-          _dragging = true;
+          if (!_dragging) {
+            _dragging = true;
+            _store.beginDrag(_sliderKey);
+          }
           _update(p, size, vertical);
         }
 
         void end() {
+          if (!_dragging) return;
           _dragging = false;
           _sendTimer?.cancel();
           _flush();
+          _store.endDrag(_sliderKey);
+          _applySnapshot(_store.peekKey(_sliderKey), notify: true);
         }
 
         // Só o eixo do controle: arrastar no outro sentido continua trocando de página.
@@ -263,9 +303,11 @@ class _SliderDeckButtonState extends State<SliderDeckButton> {
           onVerticalDragStart: vertical ? (d) => start(d.localPosition) : null,
           onVerticalDragUpdate: vertical ? (d) => _update(d.localPosition, size, vertical) : null,
           onVerticalDragEnd: vertical ? (_) => end() : null,
+          onVerticalDragCancel: vertical ? end : null,
           onHorizontalDragStart: vertical ? null : (d) => start(d.localPosition),
           onHorizontalDragUpdate: vertical ? null : (d) => _update(d.localPosition, size, vertical),
           onHorizontalDragEnd: vertical ? null : (_) => end(),
+          onHorizontalDragCancel: vertical ? null : end,
           child: content,
         );
       }),

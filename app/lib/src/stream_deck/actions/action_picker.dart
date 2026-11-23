@@ -5,6 +5,7 @@ import 'package:deckos/src/stream_deck/actions/action_catalog.dart';
 import 'package:deckos/src/stream_deck/actions/action_schema.dart';
 import 'package:deckos/src/stream_deck/actions/editors/action_editor.dart';
 import 'package:deckos/src/stream_deck/actions/schema_action_form.dart';
+import 'package:deckos/src/stream_deck/layout/library_items.dart' show actionSupported;
 import 'package:flutter/material.dart';
 
 /// Escolha de uma ação: o tipo (agrupado por categoria) e os campos dele. Um botão tem
@@ -52,6 +53,7 @@ class ActionPicker extends StatefulWidget {
     'activatewindow',
     'http',
     'script',
+    'network',
   };
 
   static bool isPrivilegedType(String type) =>
@@ -78,6 +80,7 @@ class _ActionPickerState extends State<ActionPicker> {
   final _catalog = ActionCatalog.instance;
   late String _type;
   late Map<String, String> _params;
+  PlatformInfo? _platform;
   late final bool _locked =
       widget.remote && ActionPicker.isPrivileged(widget.initial);
 
@@ -89,6 +92,16 @@ class _ActionPickerState extends State<ActionPicker> {
         ? 'none'
         : (a.type == 'launchApp' ? 'launch_app' : a.type);
     _params = Map<String, String>.from(a?.parameters ?? const {});
+    _loadPlatform();
+  }
+
+  Future<void> _loadPlatform() async {
+    try {
+      final platform = await Injector.get<DeckOSClient>().getPlatform();
+      if (mounted) setState(() => _platform = platform);
+    } catch (_) {
+      // Standalone/offline editor keeps the built-in choices until a host is available.
+    }
   }
 
   void _emit() {
@@ -111,7 +124,8 @@ class _ActionPickerState extends State<ActionPicker> {
   }
 
   List<ActionSchema> get _available => _catalog.schemas.value
-      .where((s) => !widget.remote || _locked || !s.privileged)
+      .where((s) => actionSupported(s.type, _platform) &&
+          (!widget.remote || _locked || !ActionPicker.isPrivilegedType(s.type)))
       .toList();
 
   @override

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:deckos/core/core.dart';
 import 'package:deckos/src/services/signalr_service.dart';
+import 'package:deckos/src/stream_deck/slider_state_store.dart';
 
 class HomeController {
   final DeckOSClient _client = Injector.get<DeckOSClient>();
@@ -17,6 +18,15 @@ class HomeController {
   Timer? _mediaRefreshDebounce;
   void Function()? _volumeSubDispose;
   void Function()? _mediaSubDispose;
+  void Function()? _reconnectDispose;
+
+  bool _disposed = false;
+  Future<void>? _outputsInFlight;
+  bool _outputsQueued = false;
+  Future<void>? _inputsInFlight;
+  bool _inputsQueued = false;
+  Future<void>? _mediaInFlight;
+  bool _mediaQueued = false;
 
   HomeController() {
     // Subscribe to SignalR volume updates and refresh when they arrive.
@@ -24,33 +34,68 @@ class HomeController {
     // continua vivo e dispara fetch num controller ja descartado (leak + erro).
     // Estado de midia mudou em OUTRO lugar (botao do deck, outro celular): recarrega
     // o card de midia. Sem isto, o app so descobria a troca no poll de 60s.
+    var firstMedia = true;
     _mediaSubDispose = _signalR.mediaStateUpdates.subscribe((update) {
-      if (update == null) return;
+      if (firstMedia) {
+        firstMedia = false;
+        return;
+      }
+      if (update == null || _disposed) return;
       _mediaRefreshDebounce?.cancel();
       _mediaRefreshDebounce =
           Timer(const Duration(milliseconds: 400), fetchMediaSessions);
     });
 
+    var firstVolume = true;
     _volumeSubDispose = _signalR.volumeUpdates.subscribe((updates) {
-      if (updates.isEmpty) return;
+      if (firstVolume) {
+        firstVolume = false;
+        return;
+      }
+      if (updates.isEmpty || _disposed) return;
 
       // Debounce to avoid excessive refreshes during rapid slider changes
       _signalRRefreshDebounce?.cancel();
       _signalRRefreshDebounce = Timer(const Duration(milliseconds: 500), () {
+        if (_disposed) return;
         fetchOutputs();
         fetchInputs();
       });
     });
+
+    // Ao reconectar depois de queda ou erro offline, atualiza o mixer e a mídia sem esperar 60s.
+    var wasConnected = _signalR.connectionStatus.value == 'Connected';
+    var sawDisconnect = false;
+    _reconnectDispose = effect(() {
+      final connected = _signalR.connectionStatus.value == 'Connected';
+      if (!connected && wasConnected) {
+        sawDisconnect = true;
+      } else if (connected && !wasConnected) {
+        final shouldRefresh = sawDisconnect || error.value != null;
+        sawDisconnect = false;
+        if (shouldRefresh && !_disposed) {
+          untracked(() {
+            fetchOutputs();
+            fetchInputs();
+            fetchMediaSessions();
+          });
+        }
+      }
+      wasConnected = connected;
+    });
   }
 
   void startPolling() {
+    if (_disposed) return;
     // Initial fetch
     fetchOutputs();
     fetchInputs();
     fetchMediaSessions();
 
     // Poll every 60 seconds (SignalR handles real-time updates)
+    _pollingTimer?.cancel();
     _pollingTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (_disposed) return;
       fetchOutputs();
       fetchInputs();
       fetchMediaSessions();
@@ -62,34 +107,70 @@ class HomeController {
     _pollingTimer = null;
   }
 
-  Future<void> fetchOutputs() async {
-    // Don't show loading on periodic refresh
-    final isInitialLoad = outputs.value.isEmpty;
-    if (isInitialLoad) {
-      isLoading.value = true;
+  Future<void> fetchOutputs() {
+    if (_disposed) return Future<void>.value();
+    final existing = _outputsInFlight;
+    if (existing != null) {
+      _outputsQueued = true;
+      return existing;
     }
-
-    try {
-      final res = await _client.getOutputs();
-      outputs.value = res;
-      error.value = null;
-    } catch (e) {
-      error.value = e.toString();
-    } finally {
-      if (isInitialLoad) {
-        isLoading.value = false;
-      }
-    }
+    final task = _runOutputsLoop().whenComplete(() => _outputsInFlight = null);
+    _outputsInFlight = task;
+    return task;
   }
 
-  Future<void> fetchInputs() async {
-    try {
-      final res = await _client.getInputs();
-      inputs.value = res;
-      error.value = null;
-    } catch (e) {
-      error.value = e.toString();
+  Future<void> _runOutputsLoop() async {
+    do {
+      _outputsQueued = false;
+      if (_disposed) return;
+      // Don't show loading on periodic refresh; retain last valid data while refreshing.
+      final isInitialLoad = outputs.value.isEmpty;
+      if (isInitialLoad) {
+        isLoading.value = true;
+      }
+
+      try {
+        final res = await _client.getOutputs();
+        if (_disposed) return;
+        outputs.value = res;
+        error.value = null;
+      } catch (e) {
+        if (_disposed) return;
+        error.value = e.toString();
+      } finally {
+        if (!_disposed && isInitialLoad) {
+          isLoading.value = false;
+        }
+      }
+    } while (_outputsQueued && !_disposed);
+  }
+
+  Future<void> fetchInputs() {
+    if (_disposed) return Future<void>.value();
+    final existing = _inputsInFlight;
+    if (existing != null) {
+      _inputsQueued = true;
+      return existing;
     }
+    final task = _runInputsLoop().whenComplete(() => _inputsInFlight = null);
+    _inputsInFlight = task;
+    return task;
+  }
+
+  Future<void> _runInputsLoop() async {
+    do {
+      _inputsQueued = false;
+      if (_disposed) return;
+      try {
+        final res = await _client.getInputs();
+        if (_disposed) return;
+        inputs.value = res;
+        error.value = null;
+      } catch (e) {
+        if (_disposed) return;
+        error.value = e.toString();
+      }
+    } while (_inputsQueued && !_disposed);
   }
 
   // Send volume change and refresh immediately
@@ -98,13 +179,16 @@ class HomeController {
       final data = MixerData(volume: volume);
       if (isInput) {
         await _client.setInput(id, data);
+        if (_disposed) return;
         fetchInputs();
       } else {
         await _client.setOutput(id, data);
+        if (_disposed) return;
         fetchOutputs();
       }
+      SliderStateStore.instance.scheduleAudioRefresh();
     } catch (e) {
-      error.value = e.toString();
+      if (!_disposed) error.value = e.toString();
     }
   }
 
@@ -114,13 +198,16 @@ class HomeController {
       final data = MixerData(mute: !currentMute);
       if (isInput) {
         await _client.setInput(id, data);
+        if (_disposed) return;
         fetchInputs();
       } else {
         await _client.setOutput(id, data);
+        if (_disposed) return;
         fetchOutputs();
       }
+      SliderStateStore.instance.scheduleAudioRefresh();
     } catch (e) {
-      error.value = e.toString();
+      if (!_disposed) error.value = e.toString();
     }
   }
 
@@ -129,10 +216,12 @@ class HomeController {
     try {
       await _client.setOutput(
           deviceId, MixerData(session: sessionId, volume: volume));
+      if (_disposed) return;
       // Refresh immediately - slider won't jump because of _isDragging flag
       fetchOutputs();
+      SliderStateStore.instance.scheduleAudioRefresh();
     } catch (e) {
-      error.value = e.toString();
+      if (!_disposed) error.value = e.toString();
     }
   }
 
@@ -141,13 +230,16 @@ class HomeController {
     try {
       await _client.setOutput(
           deviceId, MixerData(session: sessionId, mute: !currentMute));
+      if (_disposed) return;
       fetchOutputs();
+      SliderStateStore.instance.scheduleAudioRefresh();
     } catch (e) {
-      error.value = e.toString();
+      if (!_disposed) error.value = e.toString();
     }
   }
 
   void dispose() {
+    _disposed = true;
     stopPolling();
     _signalRRefreshDebounce?.cancel();
     _mediaRefreshDebounce?.cancel();
@@ -155,6 +247,8 @@ class HomeController {
     _volumeSubDispose = null;
     _mediaSubDispose?.call();
     _mediaSubDispose = null;
+    _reconnectDispose?.call();
+    _reconnectDispose = null;
   }
 
   void toggleFullscreen() {
@@ -164,20 +258,37 @@ class HomeController {
   // Media Control methods
   late final mediaSessions = signal<Map<String, MediaSession>>({});
 
-  Future<void> fetchMediaSessions() async {
-    try {
-      final sessions = await _client.getMediaSessions();
-      // Convert list to map by ID for easy lookup
-      final sessionMap = <String, MediaSession>{};
-      for (final session in sessions) {
-        if (session.id != null) {
-          sessionMap[session.id!] = session;
-        }
-      }
-      mediaSessions.value = sessionMap;
-    } catch (_) {
-      // Best-effort refresh; SignalR or next poll retries.
+  Future<void> fetchMediaSessions() {
+    if (_disposed) return Future<void>.value();
+    final existing = _mediaInFlight;
+    if (existing != null) {
+      _mediaQueued = true;
+      return existing;
     }
+    final task = _runMediaLoop().whenComplete(() => _mediaInFlight = null);
+    _mediaInFlight = task;
+    return task;
+  }
+
+  Future<void> _runMediaLoop() async {
+    do {
+      _mediaQueued = false;
+      if (_disposed) return;
+      try {
+        final sessions = await _client.getMediaSessions();
+        if (_disposed) return;
+        // Convert list to map by ID for easy lookup
+        final sessionMap = <String, MediaSession>{};
+        for (final session in sessions) {
+          if (session.id != null) {
+            sessionMap[session.id!] = session;
+          }
+        }
+        mediaSessions.value = sessionMap;
+      } catch (_) {
+        // Best-effort refresh; SignalR or next poll retries.
+      }
+    } while (_mediaQueued && !_disposed);
   }
 
   Future<void> sendMediaCommand(String sessionId, String command) async {

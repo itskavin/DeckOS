@@ -92,6 +92,12 @@ class LibraryItem {
   }
 
   /// Atalho de teclado gravado ([keys] no formato do SendKeys).
+  static LibraryItem lockComputer(String label) => LibraryItem(
+        title: label,
+        template: DeckButton(id: '', row: 0, column: 0, label: label, iconName: 'lock',
+            action: DeckAction(type: 'windows', parameters: {'operation': 'lock'})),
+      );
+
   static LibraryItem fromShortcut(String keys, String display, {String? label}) => LibraryItem(
         title: label ?? display,
         subtitle: label == null ? null : display,
@@ -117,12 +123,15 @@ const actionCapability = <String, String>{
   'mixer': 'audio.volume',
   'soundboard': 'soundboard',
   'voicemeeter': 'voicemeeter',
-  'windows': 'audio.defaultDevice',
 };
 
 /// O PC executa este tipo? Sem o relatório da plataforma (PC antigo), tudo vale.
 bool actionSupported(String type, PlatformInfo? platform) {
   if (platform == null || platform.capabilities.isEmpty) return true;
+  if (type == 'windows') {
+    return ['audio.defaultDevice', 'power.lock', 'power.sleep', 'power.displayOff']
+        .any(platform.has);
+  }
   final need = actionCapability[type];
   if (need != null) return platform.has(need);
   if (type == 'script') {

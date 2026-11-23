@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:deckos/core/core.dart';
+import 'package:deckos/src/ai_limits/ai_limits_settings_page.dart';
 import 'package:deckos/src/config/appearance_settings_page.dart';
 import 'package:deckos/src/config/integrations_page.dart';
 import 'package:deckos/src/config/triggers_page.dart';
@@ -588,6 +589,11 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
       mode: LaunchMode.externalApplication);
 
   List<({IconData icon, String label, VoidCallback onTap})> get _tools => [
+        (
+          icon: Icons.speed_rounded,
+          label: tr('Limites de IA'),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AiLimitsSettingsPage())),
+        ),
         (
           icon: Icons.hub_outlined,
           label: tr('Integrações'),

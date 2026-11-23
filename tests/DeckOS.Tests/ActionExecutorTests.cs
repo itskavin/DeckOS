@@ -51,9 +51,12 @@ namespace DeckOS.Tests
         }
 
         [Fact]
-        public async Task TipoDesconhecido_NaoLanca()
+        public async Task UnknownActionReportsFailure()
         {
-            await Executor(new FakeProvider("obs")).ExecuteActionAsync(new DeckAction { Type = "nada" });
+            var error = await Assert.ThrowsAsync<ActionExecutionException>(() =>
+                Executor(new FakeProvider("obs")).ExecuteActionAsync(new DeckAction { Type = "nada" }));
+            Assert.Equal("unknown_action", error.Code);
+            Assert.Equal(400, error.StatusCode);
         }
 
         [Fact]

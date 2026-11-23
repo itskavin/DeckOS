@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:deckos/core/core.dart';
 import 'package:deckos/src/services/signalr_service.dart';
@@ -376,12 +375,13 @@ class _InfoDeckButtonState extends State<InfoDeckButton> {
     }
     Widget? cover;
     if (thumb != null && thumb.isNotEmpty) {
-      try {
-        cover = Image.memory(base64Decode(thumb),
+      final bytes = LiquidGlassCache.decodeBase64(thumb);
+      if (bytes != null) {
+        cover = Image.memory(bytes,
             fit: BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder: (_, __, ___) => const Icon(CupertinoIcons.music_note));
-      } catch (_) {}
+      }
     }
     return Padding(
       padding: const EdgeInsets.all(4),

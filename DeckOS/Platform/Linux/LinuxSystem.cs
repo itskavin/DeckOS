@@ -274,8 +274,27 @@ namespace DeckOS.Platform.Linux
             if (argv == null || argv.Count == 0)
                 throw new InvalidOperationException($"'{path}' não tem um comando para abrir.");
             argv.AddRange(CommandLine.Split(arguments));
-            var exe = Tools.Which(argv[0]) ?? argv[0];
-            Tools.Spawn(exe, argv.Skip(1));
+            using var process = Process.Start(DesktopLaunchInfo(entry!, argv, Tools.Which));
+        }
+
+        internal static ProcessStartInfo DesktopLaunchInfo(DesktopEntry entry, IReadOnlyList<string> argv,
+            Func<string, string?> which)
+        {
+            var exe = which(argv[0]) ?? argv[0];
+            var args = argv.Skip(1).ToList();
+            if (entry.Terminal)
+            {
+                var terminals = new[] { "x-terminal-emulator", "gnome-terminal", "konsole", "xterm" };
+                var terminal = terminals.FirstOrDefault(t => which(t) != null)
+                    ?? throw new PlatformFeatureException("A terminal emulator is required by this desktop entry.");
+                args.Insert(0, exe);
+                args.Insert(0, terminal == "gnome-terminal" ? "--" : "-e");
+                exe = which(terminal)!;
+            }
+            var info = new ProcessStartInfo(exe) { UseShellExecute = false };
+            if (!string.IsNullOrWhiteSpace(entry.WorkingDirectory)) info.WorkingDirectory = entry.WorkingDirectory;
+            foreach (var arg in args) info.ArgumentList.Add(arg);
+            return info;
         }
 
         private static bool IsExecutable(string path)

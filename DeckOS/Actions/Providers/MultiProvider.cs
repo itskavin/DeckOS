@@ -40,7 +40,7 @@ namespace DeckOS.Actions.Providers
         public async Task ExecuteAsync(ActionContext c)
         {
             var stepsJson = c.Get("steps");
-            if (string.IsNullOrWhiteSpace(stepsJson)) return;
+            if (string.IsNullOrWhiteSpace(stepsJson)) throw new FormatException("Missing action steps.");
 
             List<MultiStep>? steps;
             try
@@ -50,7 +50,7 @@ namespace DeckOS.Actions.Providers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Multi-ação: JSON de passos inválido");
-                return;
+                throw new FormatException("Invalid action steps.", ex);
             }
             if (steps == null) return;
 

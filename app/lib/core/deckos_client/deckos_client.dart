@@ -18,6 +18,16 @@ export 'models/platform_info.dart';
 export 'models/installed_app.dart';
 export 'demo/demo_backend.dart' show DemoBackend;
 
+/// Erro transitório de rede/transporte ao consultar um controle deslizante (sem resposta
+/// do PC ou timeout). Distingue queda momentânea de um 404 explícito (alvo ausente).
+class SliderOfflineException implements Exception {
+  const SliderOfflineException([this.message = 'PC unreachable']);
+  final String message;
+
+  @override
+  String toString() => 'SliderOfflineException: $message';
+}
+
 class DeckOSClient {
   final Dio _dio;
   final String baseUrl;
@@ -77,6 +87,9 @@ class DeckOSClient {
   void setBaseUrl(String url) {
     _dio.options.baseUrl = url;
   }
+
+  /// Current transport route, without credentials; used to reject stale host responses.
+  String get currentBaseUrl => _dio.options.baseUrl;
 
   /// Define (ou remove) a chave de API enviada em todas as requisições (header X-API-KEY).
   void setApiKey(String? key) {
@@ -467,32 +480,47 @@ class DeckOSClient {
   }
 
   /// Controle deslizante: volume (0-100) do alvo ("output", "input" ou "app" + nome do
-  /// processo). Null se o alvo não existe agora (app fechado).
+  /// processo). Null se o alvo não existe agora (404 — ex.: app fechado).
   /// Estado de um controle deslizante: {volume, max, mute, label, text}. [params] são os
   /// do botão (dispositivo, fonte, pessoa...). Lança com a mensagem do PC se o alvo falhou
-  /// (integração desconectada, luz fora da rede); null se o alvo não existe agora.
+  /// (503 — integração desconectada, luz fora da rede), [SliderOfflineException] se o PC
+  /// não respondeu (queda/timeout de rede), ou devolve null se o alvo não existe agora (404).
   Future<Map<String, dynamic>?> getSlider(String target, Map<String, String> params) async {
     try {
       final r = await _dio.get('/api/slider', queryParameters: {...params, 'target': target});
       return Map<String, dynamic>.from(r.data as Map);
     } on DioException catch (e) {
+      final status = e.response?.statusCode;
       final data = e.response?.data;
-      if (e.response?.statusCode == 503 && data is Map && data['error'] != null) {
+      if (status == 503 && data is Map && data['error'] != null) {
         throw Exception(data['error']);
       }
-      return null;
+      if (status == 404) {
+        return null;
+      }
+      if (e.response == null || (status != null && status >= 500)) {
+        throw SliderOfflineException(e.message ?? 'Connection error');
+      }
+      throw Exception('HTTP $status');
     }
   }
 
-  Future<void> setSlider(String target, Map<String, String> params, int volume) async {
+  Future<Map<String, dynamic>?> setSlider(String target, Map<String, String> params, int volume) async {
     try {
-      await _dio.put('/api/slider', data: {
+      final r = await _dio.put('/api/slider', data: {
         'target': target,
         'app': params['app'] ?? '',
         'params': params,
         'volume': volume,
       });
-    } catch (_) {}
+      final data = r.data;
+      if (data is Map) return Map<String, dynamic>.from(data);
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      if (e.response == null) throw const SliderOfflineException();
+      throw Exception(data is Map && data['error'] is String ? data['error'] : 'HTTP ${e.response?.statusCode}');
+    }
+    return null;
   }
 
   /// Importa um perfil do app da Elgato (.streamDeckProfile) como perfis novos.

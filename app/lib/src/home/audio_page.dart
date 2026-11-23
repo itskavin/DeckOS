@@ -70,12 +70,18 @@ class AudioPage extends StatelessWidget {
                       : tr('Nenhuma saída encontrada.'))
                 else
                   for (final e in items)
-                    MixerDeviceCard(item: e, controller: controller, isInput: input),
+                    MixerDeviceCard(
+                      key: e.id != null ? ValueKey('mixer-${input ? 'in' : 'out'}-${e.id}') : null,
+                      item: e,
+                      controller: controller,
+                      isInput: input,
+                    ),
               ];
 
           final nowPlaying = [
             for (final s in sessions)
               NowPlayingCard(
+                key: s.id != null ? ValueKey('now-playing-${s.id}') : null,
                 session: s,
                 onCommand: (cmd) => controller.sendMediaCommand(s.id!, cmd),
               ),

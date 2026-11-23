@@ -10,6 +10,15 @@ using Microsoft.Extensions.Logging;
 
 namespace DeckOS.Services
 {
+    public sealed class ActionExecutionException : Exception
+    {
+        public string Code { get; }
+        public int StatusCode { get; }
+
+        public ActionExecutionException(string code, int statusCode, Exception? inner = null)
+            : base(code, inner) { Code = code; StatusCode = statusCode; }
+    }
+
     /// <summary>
     /// Despacha cada DeckAction para o IActionProvider do seu tipo. Os tipos em si vivem em
     /// Actions/Providers; aqui so ficam a busca pelo tipo e o tratamento de erro.
@@ -61,7 +70,7 @@ namespace DeckOS.Services
             if (provider == null)
             {
                 _logger.LogWarning("Unknown action type: {Type}", action.Type);
-                return;
+                throw new ActionExecutionException("unknown_action", 400);
             }
 
             try
@@ -81,6 +90,14 @@ namespace DeckOS.Services
                     try { await _hub.Clients.All.SendAsync(stateful.StateEvent, stateful.GetState()); }
                     catch { }
                 }
+                // Preserve failure through nested multi-actions and to the HTTP caller.
+                // Receipt of a button press is not evidence that its action succeeded.
+                if (ex is ActionExecutionException) throw;
+                throw new ActionExecutionException(
+                    ex is Platform.PlatformFeatureException ? "unsupported_action"
+                        : ex is ArgumentException or FormatException ? "invalid_action" : "action_failed",
+                    ex is Platform.PlatformFeatureException ? 501
+                        : ex is ArgumentException or FormatException ? 400 : 503, ex);
             }
         }
     }

@@ -80,6 +80,7 @@ class MixerDeviceCard extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               children: [
                 _MixerColumn(
+                  key: ValueKey('mixer-master-${item.id ?? 'default'}'),
                   label: tr('Geral'),
                   icon: _AppIcon(base64: null, fallback: fallback, size: 28),
                   volume: device.volume,
@@ -96,6 +97,7 @@ class MixerDeviceCard extends StatelessWidget {
                   ),
                 for (final ch in channels)
                   _MixerColumn(
+                    key: ValueKey('mixer-ch-${item.id ?? 'default'}-${ch.id}'),
                     label: _appName(ch.description) ?? 'App ${ch.id}',
                     icon: _AppIcon(base64: ch.icon, fallback: Icons.apps_rounded, size: 28),
                     volume: ch.volume,
@@ -123,6 +125,7 @@ class MixerDeviceCard extends StatelessWidget {
 /// Um controle vertical com o ícone e o nome embaixo.
 class _MixerColumn extends StatelessWidget {
   const _MixerColumn({
+    super.key,
     required this.label,
     required this.icon,
     required this.volume,
@@ -316,6 +319,11 @@ class _ControlCenterSliderState extends State<ControlCenterSlider> {
         onVerticalDragUpdate: (d) => _drag(d.delta.dy),
         onVerticalDragEnd: (_) {
           setState(() => _dragging = false);
+          _send?.cancel();
+          _flush();
+        },
+        onVerticalDragCancel: () {
+          if (_dragging) setState(() => _dragging = false);
           _send?.cancel();
           _flush();
         },

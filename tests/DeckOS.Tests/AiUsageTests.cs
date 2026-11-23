@@ -97,35 +97,25 @@ namespace DeckOS.Tests
         }
 
         [Fact]
-        public async Task Claude_429_NaoInsisteAntesDaEspera()
+        public async Task Claude_PlanAsync_UsaSnapshotPassivoSemChamarEndpointPrivado()
         {
-            var dir = Path.Combine(Path.GetTempPath(), "dd-ai-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(dir);
-            var old = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+            var handler = new FakeHandler { Status = HttpStatusCode.OK };
+            var ai = new AiUsageService(new FakeFactory(handler));
+
+            var snapDir = Path.Combine(DeckOS.Lib.AppPaths.LocalDir, "ai-limits", "snapshots");
+            Directory.CreateDirectory(snapDir);
+            var snapFile = Path.Combine(snapDir, "claude-statusline-legacytest.json");
             try
             {
-                File.WriteAllText(Path.Combine(dir, ".credentials.json"),
-                    """{"claudeAiOauth":{"accessToken":"x","expiresAt":0}}""");
-                Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", dir);
-                var handler = new FakeHandler { Status = (HttpStatusCode)429 };
-                var ai = new AiUsageService(new FakeFactory(handler));
-
-                await Assert.ThrowsAnyAsync<InvalidOperationException>(() => ai.PlanAsync(AiUsageService.Claude));
-                handler.Status = HttpStatusCode.OK;
-                // Ainda dentro da espera: devolve o erro guardado sem perguntar de novo.
-                await Assert.ThrowsAnyAsync<InvalidOperationException>(() => ai.PlanAsync(AiUsageService.Claude));
-                Assert.Equal(1, handler.Calls);
-
-                // Com resposta boa guardada, a mesma janela de 5 min não pergunta de novo.
-                var fresh = new AiUsageService(new FakeFactory(handler));
-                Assert.Equal(10, (await fresh.PlanAsync(AiUsageService.Claude)).Session!.Percent);
-                Assert.Equal(20, (await fresh.PlanAsync(AiUsageService.Claude)).Week!.Percent);
-                Assert.Equal(2, handler.Calls);
+                File.WriteAllText(snapFile, """{"rate_limits":{"five_hour":{"used_percentage":15,"resets_at":1793000000},"seven_day":{"used_percentage":30}}}""");
+                var plan = await ai.PlanAsync(AiUsageService.Claude);
+                Assert.Equal(15, plan.Session!.Percent);
+                Assert.Equal(30, plan.Week!.Percent);
+                Assert.Equal(0, handler.Calls); // Nunca faz polling ativo no /api/oauth/usage.
             }
             finally
             {
-                Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", old);
-                Directory.Delete(dir, true);
+                try { if (File.Exists(snapFile)) File.Delete(snapFile); } catch { }
             }
         }
 

@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:deckos/src/stream_deck/actions/action_catalog.dart';
 
 import '../buttons/colors.dart';
+import '../../ai_limits/ai_limits_tile.dart';
+import '../../ai_limits/ai_provider_style.dart';
 import 'ai_limits_demo_tile.dart';
 import 'info_deck_button.dart';
 import 'editor/info_section.dart';
@@ -36,6 +38,13 @@ class DynamicDeckButton extends StatelessWidget {
     if (type == aiLimitsDemoDynamicType) {
       final sample = aiLimitDemoSampleFor(button);
       return '${sample.displayTitle} (${tr('DEMO')})';
+    }
+    if (type == aiLimitsDynamicType) {
+      final custom = button.label?.trim();
+      if (custom != null && custom.isNotEmpty) return custom;
+      final cfg = AiLimitsTileConfig.fromParams(button.dynamicParameters);
+      if (cfg.aliasHint.isNotEmpty) return '${tr('Limites de IA')}: ${cfg.aliasHint}';
+      return tr('Limites de IA');
     }
     if (type != null && type.isNotEmpty && type != 'none') {
       if (InfoSection.labels[type] != null) {
@@ -95,6 +104,15 @@ class DynamicDeckButton extends StatelessWidget {
     // Cartões ilustrativos da página "AI Limits Demo" (isolados de ai_usage real).
     if (button.dynamicType == aiLimitsDemoDynamicType) {
       return AiLimitsDemoTile(
+        button: button,
+        onTap: onTap,
+        onLongPress: onLongPress,
+      );
+    }
+
+    // Cartão ao vivo de Limites de IA vinculado a uma conta real configurada no PC.
+    if (button.dynamicType == aiLimitsDynamicType) {
+      return AiLimitsTile(
         button: button,
         onTap: onTap,
         onLongPress: onLongPress,

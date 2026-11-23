@@ -62,6 +62,7 @@ namespace DeckOS.Actions.Providers
                 return Task.CompletedTask;
             }
             var path = c.Get("path");
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Missing launch target.");
             if (path.Length > 0)
             {
                 _activator.LaunchApp(path, c.Get("arguments"));
@@ -164,7 +165,8 @@ namespace DeckOS.Actions.Providers
 
         public async Task ExecuteAsync(ActionContext c)
         {
-            if (!KeyboardInput.TryResolveKey(c.Get("key"), out var vk)) return;
+            if (!KeyboardInput.TryResolveKey(c.Get("key"), out var vk))
+                throw new ArgumentException("Unknown key.");
 
             var mode = c.Get("mode");
             var oneShot = string.Equals(mode, "oneshot", StringComparison.OrdinalIgnoreCase);
@@ -241,7 +243,7 @@ namespace DeckOS.Actions.Providers
         public Task ExecuteAsync(ActionContext c)
         {
             var keys = c.Get("keys");
-            if (keys.Length == 0) return Task.CompletedTask;
+            if (string.IsNullOrWhiteSpace(keys)) throw new ArgumentException("Missing shortcut.");
             _activator.SendKeys(keys);
             // Shift "ate a proxima tecla" vale para o atalho e solta depois dele.
             HeldKeys.Shared.KeyTapped();

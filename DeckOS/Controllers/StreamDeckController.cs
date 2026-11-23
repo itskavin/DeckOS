@@ -96,9 +96,7 @@ namespace DeckOS.Controllers
             // Botao de dois estados: o toque alterna e escolhe a acao do estado.
             var tap = string.IsNullOrEmpty(request.Gesture) || request.Gesture.Equals("tap", System.StringComparison.OrdinalIgnoreCase);
             var action = button.Toggle && tap ? _toggles.Press(button) : button.ActionFor(request.Gesture);
-            if (action != null)
-                await _executorService.ExecuteActionAsync(action, button.Id);
-            return Ok();
+            return action == null ? Ok() : await ExecuteAndReport(action, button.Id);
         }
 
         /// <summary>
@@ -114,8 +112,21 @@ namespace DeckOS.Controllers
                 _logger.LogWarning("Execute remoto recusado: acao privilegiada {Type}", action.Type);
                 return PrivilegedOnlyOnPc(null);
             }
-            await _executorService.ExecuteActionAsync(action);
-            return Ok();
+            return await ExecuteAndReport(action);
+        }
+
+        private async Task<ActionResult> ExecuteAndReport(DeckAction action, string? buttonId = null)
+        {
+            try
+            {
+                await _executorService.ExecuteActionAsync(action, buttonId);
+                return Ok();
+            }
+            catch (ActionExecutionException ex)
+            {
+                // Do not return provider exception details (paths, tokens, remote bodies).
+                return StatusCode(ex.StatusCode, new { error = ex.Code });
+            }
         }
 
         private bool IsLocalRequest => ActionPolicy.IsLocal(HttpContext.Connection);

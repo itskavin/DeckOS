@@ -22,6 +22,7 @@ namespace DeckOS.Platform.Linux
         public string? Exec => this["Exec"];
         public string? Icon => this["Icon"];
         public string? TryExec => this["TryExec"];
+        public string? WorkingDirectory => this["Path"];
         public bool NoDisplay => IsTrue(this["NoDisplay"]);
         public bool Hidden => IsTrue(this["Hidden"]);
         public bool Terminal => IsTrue(this["Terminal"]);

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import 'package:deckos/src/services/signalr_service.dart';
 
+import '../../../ai_limits/ai_limits_editor_fields.dart';
+import '../../../ai_limits/ai_provider_style.dart';
 import '../ai_limits_demo_tile.dart';
 import 'remote_options_field.dart';
 
@@ -44,6 +46,7 @@ class InfoSection extends StatelessWidget {
     'volume_slider': 'Controle deslizante (volume, brilho, música)',
     'notifications': 'Notificações do Windows',
     'ai_usage': 'Uso de IA (Claude, Codex)',
+    aiLimitsDynamicType: 'Limites de IA',
     'ai_limits_demo': 'Limites de IA (Demo)',
   };
 
@@ -287,6 +290,13 @@ class InfoSection extends StatelessWidget {
                       'o login do Claude Code deste PC; nada sai do PC além da consulta à Anthropic.'))
               : tr('Tokens de hoje e dos últimos 7 dias, somados dos registros que a ferramenta '
                   'guarda no PC (entrada, saída e cache).')),
+        ];
+      case aiLimitsDynamicType:
+        return [
+          AiLimitsEditorFields(
+            params: params,
+            onChanged: (next) => onChanged(type, next),
+          ),
         ];
       case 'ai_limits_demo':
         final sampleId = _p('sample', aiLimitsDemoSamples.first.id);

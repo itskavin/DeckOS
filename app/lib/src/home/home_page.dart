@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:deckos/core/core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show DeviceGestureSettings;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -206,28 +209,38 @@ class HomePageState extends State<HomePage> {
           ),
         );
 
-        return PageView(
-          controller: _pageController,
-          physics: const DeckPagePhysics(),
-          onPageChanged: (index) {
-            setState(() {
-              selectedIndex = index;
-            });
-            _deckTab.value = index == 1;
-            SharedPreferences.getInstance().then((sp) => sp.setInt(_tabKey, index));
-          },
-          children: [
-            audioTab,
-            StreamDeckPage(
-              onToggleFullscreen: controller.toggleFullscreen,
-              isFullscreen: isFullscreen,
-              onChromeVisibilityChanged: _onDeckChromeChanged,
-              bottomNavInset:
-                  (!landscape && showNavStructure) ? portraitInset : 0,
-              leftNavInset:
-                  (landscape && showNavStructure) ? landscapeInset : 0,
-            ),
-          ],
+        final baseMedia = MediaQuery.of(context);
+        final deckTouchSlop = math.max(
+          baseMedia.gestureSettings.touchSlop ?? 0,
+          kDeckTouchSlop,
+        );
+        return MediaQuery(
+          data: baseMedia.copyWith(
+            gestureSettings: DeviceGestureSettings(touchSlop: deckTouchSlop),
+          ),
+          child: PageView(
+            controller: _pageController,
+            physics: const DeckPagePhysics(),
+            onPageChanged: (index) {
+              setState(() {
+                selectedIndex = index;
+              });
+              _deckTab.value = index == 1;
+              SharedPreferences.getInstance().then((sp) => sp.setInt(_tabKey, index));
+            },
+            children: [
+              MediaQuery(data: baseMedia, child: audioTab),
+              StreamDeckPage(
+                onToggleFullscreen: controller.toggleFullscreen,
+                isFullscreen: isFullscreen,
+                onChromeVisibilityChanged: _onDeckChromeChanged,
+                bottomNavInset:
+                    (!landscape && showNavStructure) ? portraitInset : 0,
+                leftNavInset:
+                    (landscape && showNavStructure) ? landscapeInset : 0,
+              ),
+            ],
+          ),
         );
       }),
     );

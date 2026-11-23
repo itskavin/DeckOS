@@ -299,8 +299,9 @@ class _LibraryPanelState extends State<LibraryPanel> {
                 (context, i) {
                   final (label, keys) = presets[i];
                   final display = prettyKeys(keys, mac: _mac);
+                  final nativeLock = keys == '#l' && (widget.platform == null || widget.platform!.has('power.lock'));
                   return _LibraryTile(
-                    item: LibraryItem.fromShortcut(keys, display, label: label),
+                    item: nativeLock ? LibraryItem.lockComputer(label) : LibraryItem.fromShortcut(keys, display, label: label),
                     icon: _KeycapTile(text: display, size: 46, color: c.gray),
                     onAdd: widget.onAdd,
                   );

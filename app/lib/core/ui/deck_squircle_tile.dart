@@ -1,11 +1,17 @@
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/apple_tokens.dart';
 import '../theme/deck_theme.dart';
 import '../theme/theme_controller.dart';
 import 'liquid_glass_icon.dart';
+
+/// Opt-in debug-only metadata hook for diagnosing physical touch timing/drift
+/// without ever logging keystrokes, labels, or user content.
+const bool kDeckTouchDiagnosticsEnabled = bool.fromEnvironment('DECKOS_TOUCH_DIAG');
 
 /// Qualquer coisa que afunda ao toque: encolhe rápido ao encostar o dedo e volta com
 /// uma mola ao soltar, vibrando de leve (conforme a preferência de vibração).
@@ -35,35 +41,117 @@ class ApplePressable extends StatefulWidget {
   static bool isDown(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_PressedScope>()?.down ?? false;
 
+  /// Minimum time the depressed visual state stays active on a quick (< 100 ms)
+  /// tap so the press animation renders instead of collapsing within a single frame.
+  static const Duration quickTapVisualHold = Duration(milliseconds: 65);
+
   @override
   State<ApplePressable> createState() => _ApplePressableState();
 }
 
 class _ApplePressableState extends State<ApplePressable> {
   bool _down = false;
+  bool _pulsePending = false;
+  bool _releaseAfterPulse = false;
+  Timer? _pulseTimer;
+
+  // Debug-only coarse contact metadata (never stores labels/content).
+  int? _diagPointer;
+  DateTime? _diagDownAt;
+  Offset? _diagDownPos;
+  double _diagMaxDrift = 0;
+
+  @override
+  void dispose() {
+    _pulseTimer?.cancel();
+    super.dispose();
+  }
 
   void _set(bool down) {
-    if (_down != down) setState(() => _down = down);
+    if (_down != down && mounted) setState(() => _down = down);
+  }
+
+  void _cancelPulse() {
+    _pulseTimer?.cancel();
+    _pulseTimer = null;
+    _pulsePending = false;
+    _releaseAfterPulse = false;
+  }
+
+  void _handleTapDown(TapDownDetails _) {
+    _cancelPulse();
+    _set(true);
+    if (widget.haptic && widget.onTap != null) {
+      ThemeController.instance.tapFeedback();
+    }
+    final animate = widget.pressedScale != 1 &&
+        AppleMotion.of(context, AppleMotion.fast) != Duration.zero;
+    if (animate) {
+      _pulsePending = true;
+      _pulseTimer = Timer(ApplePressable.quickTapVisualHold, () {
+        _pulseTimer = null;
+        _pulsePending = false;
+        if (_releaseAfterPulse) {
+          _releaseAfterPulse = false;
+          _set(false);
+        }
+      });
+    }
+  }
+
+  void _handleTapUp(TapUpDetails _) {
+    if (_pulsePending) {
+      _releaseAfterPulse = true;
+    } else {
+      _set(false);
+    }
+  }
+
+  void _handleTapCancel() {
+    _cancelPulse();
+    _set(false);
+    _logDiag('tap_cancel');
+  }
+
+  void _handleTap() {
+    _logDiag('tap_commit');
+    widget.onTap?.call();
+  }
+
+  void _handleLongPress() {
+    _logDiag('long_press');
+    widget.onLongPress?.call();
+  }
+
+  void _handleLongPressEnd(LongPressEndDetails _) {
+    _cancelPulse();
+    _set(false);
+  }
+
+  void _logDiag(String outcome) {
+    if (!kDebugMode || !kDeckTouchDiagnosticsEnabled) return;
+    final downAt = _diagDownAt;
+    final elapsedMs = downAt == null
+        ? -1
+        : DateTime.now().difference(downAt).inMilliseconds;
+    debugPrint(
+      '[DeckTouchDiag] outcome=$outcome elapsedMs=$elapsedMs maxDriftDp=${_diagMaxDrift.toStringAsFixed(1)}',
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null || widget.onLongPress != null;
     if (!enabled) return widget.child;
-    return GestureDetector(
+    Widget pressable = GestureDetector(
       behavior: HitTestBehavior.opaque,
       // Vibra ao encostar, não ao soltar: é o que dá a sensação de botão físico.
-      onTapDown: (_) {
-        _set(true);
-        if (widget.haptic && widget.onTap != null) {
-          ThemeController.instance.tapFeedback();
-        }
-      },
-      onTapUp: (_) => _set(false),
-      onTapCancel: () => _set(false),
-      onLongPressEnd: (_) => _set(false),
-      onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
+      onTapDown: _handleTapDown,
+      onTapUp: _handleTapUp,
+      onTapCancel: _handleTapCancel,
+      onLongPressEnd: widget.onLongPress != null ? _handleLongPressEnd : null,
+      onTap: widget.onTap != null ? _handleTap : null,
+      onLongPress: widget.onLongPress != null ? _handleLongPress : null,
       child: AnimatedScale(
         scale: _down ? widget.pressedScale : 1,
         // Desce rápido e sem mola; sobe com a mola (um quique curto).
@@ -75,6 +163,29 @@ class _ApplePressableState extends State<ApplePressable> {
         child: _PressedScope(down: _down, child: widget.child),
       ),
     );
+    if (kDebugMode && kDeckTouchDiagnosticsEnabled) {
+      pressable = Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (e) {
+          _diagPointer = e.pointer;
+          _diagDownAt = DateTime.now();
+          _diagDownPos = e.position;
+          _diagMaxDrift = 0;
+        },
+        onPointerMove: (e) {
+          if (e.pointer != _diagPointer || _diagDownPos == null) return;
+          final d = (e.position - _diagDownPos!).distance;
+          if (d > _diagMaxDrift) _diagMaxDrift = d;
+        },
+        onPointerCancel: (e) {
+          if (e.pointer != _diagPointer) return;
+          _logDiag('pointer_cancel');
+          _diagPointer = null;
+        },
+        child: pressable,
+      );
+    }
+    return pressable;
   }
 }
 

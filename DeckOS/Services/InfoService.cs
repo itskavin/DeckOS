@@ -45,6 +45,7 @@ namespace DeckOS.Services
         private readonly Platform.IMediaControlService _media;
         private readonly IHttpClientFactory _http;
         private readonly AiUsageService _ai;
+        private readonly AiLimits.AiLimitsService? _aiLimits;
 
         private readonly ConcurrentDictionary<string, InfoValue> _values = new();
         private readonly ConcurrentDictionary<string, DateTime> _nextRun = new();
@@ -55,7 +56,8 @@ namespace DeckOS.Services
         private int _thumbRetries;
 
         public InfoService(ILogger<InfoService> logger, IHubContext<DeckHub> hub, StreamDeckConfigService config,
-            Platform.IMediaControlService media, IHttpClientFactory http, AiUsageService ai)
+            Platform.IMediaControlService media, IHttpClientFactory http, AiUsageService ai,
+            AiLimits.AiLimitsService? aiLimits = null)
         {
             _logger = logger;
             _hub = hub;
@@ -63,6 +65,7 @@ namespace DeckOS.Services
             _media = media;
             _http = http;
             _ai = ai;
+            _aiLimits = aiLimits;
         }
 
         public class InfoValue
@@ -250,7 +253,7 @@ namespace DeckOS.Services
                     },
                 };
             }
-            var plan = await _ai.PlanAsync(provider);
+            var plan = _aiLimits?.TryGetLegacyPlan(provider) ?? await _ai.PlanAsync(provider);
             var rows = new List<InfoRow>();
             if (plan.Session != null)
                 rows.Add(new InfoRow { Key = "session", Percent = Math.Round(plan.Session.Percent), ResetsAt = plan.Session.ResetsAt });

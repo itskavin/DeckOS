@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:deckos/core/core.dart';
 import 'package:deckos/src/services/signalr_service.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 
+import '../deck_preloader.dart';
 import 'button_look.dart';
 
 /// Discord: mudo, ensurdecer, canal atual e modo de voz refletem o estado real.
@@ -11,17 +14,7 @@ class DiscordButtonRenderer extends ButtonRenderer {
 
   @override
   void init(ButtonLook look) {
-    try {
-      final sr = Injector.get<SignalRService>();
-      final before = sr.discordState.value;
-      Injector.get<DeckOSClient>().getDiscordState().then((s) {
-        // Se o hub (ou um toque) mudou o estado enquanto isso, a resposta já é velha:
-        // escrevê-la desfazia o toque e o botão piscava de volta.
-        if (s != null && identical(sr.discordState.value, before)) {
-          sr.discordState.value = Map<String, dynamic>.from(s);
-        }
-      }).catchError((_) {});
-    } catch (_) {}
+    unawaited(DeckPreloader.instance.ensureDiscordState());
   }
 
   @override

@@ -146,6 +146,15 @@ namespace DeckOS.Tests
             Assert.DoesNotContain(Capture("^C"), e => e.Vk is 0xA0 or 0xA1 or 0x10);
 
         [Fact]
+        public void ShellShortcutChordsEmitTheExpectedModifiers()
+        {
+            Assert.Equal(new[] { (0xA4u, false), (0x09u, false), (0x09u, true), (0xA4u, true) },
+                Capture("%{TAB}").Select(e => (e.Vk, e.Up)).ToArray());
+            Assert.Equal(new[] { (0xA2u, false), (0xA0u, false), (0x1Bu, false), (0x1Bu, true), (0xA0u, true), (0xA2u, true) },
+                Capture("^+{ESC}").Select(e => (e.Vk, e.Up)).ToArray());
+        }
+
+        [Fact]
         public void TeclaWindows_SaiComoEstendida()
         {
             var ev = Capture("#{F24}");

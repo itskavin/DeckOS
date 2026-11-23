@@ -8,8 +8,27 @@ import 'package:deckos/src/stream_deck/layout/grid_placement.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class _MemDeckCacheEntry {
+  _MemDeckCacheEntry(this.client, this.profiles, this.lastProfileId);
+  final WeakReference<DeckOSClient> client;
+  final List<DeckProfile> profiles;
+  final String? lastProfileId;
+}
+
 class StreamDeckController {
+  StreamDeckController() {
+    _hydrateFromMemory();
+  }
+
   final DeckOSClient _client = Injector.get<DeckOSClient>();
+
+  // Bounded in-memory cache (per PC + client instance) so switching Audio <-> Deck
+  // renders the last profiles and selected page on frame 0 without flashing a spinner.
+  static const int _maxMemCacheEntries = 4;
+  static final Map<String, _MemDeckCacheEntry> _memCache = {};
+
+  @visibleForTesting
+  static void clearMemoryCacheForTest() => _memCache.clear();
 
   // Signals state
   final isLoading = signal(false);
@@ -23,18 +42,74 @@ class StreamDeckController {
   /// Desfazer/refazer das edições desta sessão (o configurador usa).
   final history = DeckHistory();
 
+  bool _hasLiveProfiles = false;
+  Future<void>? _loadInFlight;
+  bool _reloadQueued = false;
+
+  /// True once a network `getProfiles()` succeeded in this controller lifecycle.
+  bool get hasLiveProfiles => _hasLiveProfiles;
+
   // Cada PC pareado tem o seu deck guardado.
   static String get _cacheKey => PcStore.scoped('deck_cache');
   static String get _lastProfileKey => PcStore.scoped('deck_last_profile');
 
-  Future<void> loadProfiles() async {
+  void _hydrateFromMemory() {
+    if (WebMode.configurator) return;
+    final entry = _memCache[_cacheKey];
+    if (entry == null || !identical(entry.client.target, _client)) return;
+    if (entry.profiles.isEmpty) return;
+    profiles.value = List<DeckProfile>.from(entry.profiles);
+    final last = entry.lastProfileId;
+    currentProfile.value = entry.profiles.firstWhere(
+      (p) => p.id == last,
+      orElse: () => entry.profiles.first,
+    );
+  }
+
+  void _updateMemoryCache(List<DeckProfile> list, {String? lastProfileId}) {
+    if (WebMode.configurator) return;
+    final key = _cacheKey;
+    final prev = _memCache.remove(key);
+    final remembered = lastProfileId ??
+        currentProfile.value?.id ??
+        (identical(prev?.client.target, _client) ? prev?.lastProfileId : null);
+    _memCache[key] = _MemDeckCacheEntry(
+      WeakReference<DeckOSClient>(_client),
+      List<DeckProfile>.from(list),
+      remembered,
+    );
+    while (_memCache.length > _maxMemCacheEntries) {
+      _memCache.remove(_memCache.keys.first);
+    }
+  }
+
+  Future<void> loadProfiles() {
+    final existing = _loadInFlight;
+    if (existing != null) {
+      _reloadQueued = true;
+      return existing;
+    }
+    final task = _runLoadLoop().whenComplete(() => _loadInFlight = null);
+    _loadInFlight = task;
+    return task;
+  }
+
+  Future<void> _runLoadLoop() async {
+    do {
+      _reloadQueued = false;
+      await _loadProfilesOnce();
+    } while (_reloadQueued);
+  }
+
+  Future<void> _loadProfilesOnce() async {
     // Primeira carga: mostra na hora o último deck salvo; o do PC substitui quando chegar.
     // Com o PC desligado (sem "connection refused"), a espera pode passar de 20 s.
     if (profiles.value.isEmpty) {
       final cached = await _loadCache();
       if (cached.isNotEmpty && profiles.value.isEmpty) {
         profiles.value = cached;
-        _selectInitial(cached);
+        await _selectInitial(cached);
+        _updateMemoryCache(cached);
       }
     }
     try {
@@ -43,10 +118,12 @@ class StreamDeckController {
       final result = await _applyPageOrder(await _client.getProfiles());
       profiles.value = result;
       offline.value = false;
+      _hasLiveProfiles = true;
       // Se o app abriu sem o PC, o catálogo de ações (e os estados ao vivo que ele
       // assina, como os timers) ainda não carregou: tenta agora. Já carregado = nada.
       ActionCatalog.instance.load();
-      _selectInitial(result);
+      await _selectInitial(result);
+      _updateMemoryCache(result);
       _saveCache(result);
     } catch (e) {
       error.value = e.toString();
@@ -77,6 +154,9 @@ class StreamDeckController {
 
   /// Lembra o perfil visível para abrir nele da próxima vez.
   Future<void> rememberProfile(String id) async {
+    if (profiles.value.isNotEmpty) {
+      _updateMemoryCache(profiles.value, lastProfileId: id);
+    }
     try {
       await (await SharedPreferences.getInstance()).setString(_lastProfileKey, id);
     } catch (_) {}
@@ -106,7 +186,7 @@ class StreamDeckController {
   /// Executa a ação de um gesto ('tap', 'longPress', 'doubleTap'). Devolve false se o
   /// PC não respondeu, para a tela avisar.
   Future<bool> executeButtonAction(DeckButton button,
-      {String gesture = 'tap'}) async {
+      {String gesture = 'tap', ValueChanged<String>? onFailure}) async {
     // Botão de dois estados vai ao PC mesmo sem ação: o toque alterna o estado lá.
     final toggles = gesture == 'tap' && button.toggle;
     if (button.actionFor(gesture) == null && !toggles) return true;
@@ -129,8 +209,10 @@ class StreamDeckController {
       if (e is DioException && e.response != null) {
         // O PC respondeu, mas o botão não existe mais lá: o deck daqui está velho.
         if (e.response!.statusCode == 404) loadProfiles();
-        return true;
+        onFailure?.call(tr('O PC recebeu o toque, mas não conseguiu executar a ação. Confira a configuração e as permissões.'));
+        return false;
       }
+      onFailure?.call(tr('O PC não respondeu. Confira se o DeckOS está aberto nele.'));
       return false;
     }
   }
@@ -187,6 +269,8 @@ class StreamDeckController {
       if (profileIndex != -1) {
         profiles.value[profileIndex] = updatedProfile;
         profiles.value = List.from(profiles.value); // Trigger notify
+        _updateMemoryCache(profiles.value);
+        _saveCache(profiles.value);
       }
     } catch (e) {
       final forbidden = _forbiddenMessage(e);
@@ -221,6 +305,7 @@ class StreamDeckController {
       if (undoLabel != null && before != null) {
         history.record(DeckEdit(before, updatedProfile, undoLabel));
       }
+      _updateMemoryCache(profiles.value);
       _saveCache(profiles.value);
       return null;
     } catch (e) {

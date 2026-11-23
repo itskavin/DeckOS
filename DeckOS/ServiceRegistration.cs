@@ -4,6 +4,7 @@ using DeckOS.Actions.Providers;
 using DeckOS.Integrations;
 using DeckOS.Platform;
 using DeckOS.Services;
+using DeckOS.Services.AiLimits;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DeckOS
@@ -83,6 +84,20 @@ namespace DeckOS
             services.AddSingleton<Lib.Input.MacroRecorder>();
             services.AddHostedSingleton<TimerService>();
             services.AddSingleton<AiUsageService>();
+            services.AddSingleton(_ => new AiLimitsConfigStore());
+            services.AddSingleton<IAiLimitsEnvironmentDetector, LocalAiLimitsEnvironmentDetector>();
+            services.AddSingleton<ICodexAppServerRunner, ProcessCodexAppServerRunner>();
+            services.AddSingleton<CliProxyPassiveAdapter>();
+            services.AddSingleton<CodexLocalAdapter>();
+            services.AddSingleton<ClaudeStatusLineAdapter>();
+            services.AddSingleton<GeminiOtelAdapter>();
+            services.AddSingleton<ManualDashboardAdapter>();
+            services.AddSingleton<IAiLimitsSourceAdapter>(sp => sp.GetRequiredService<CliProxyPassiveAdapter>());
+            services.AddSingleton<IAiLimitsSourceAdapter>(sp => sp.GetRequiredService<CodexLocalAdapter>());
+            services.AddSingleton<IAiLimitsSourceAdapter>(sp => sp.GetRequiredService<ClaudeStatusLineAdapter>());
+            services.AddSingleton<IAiLimitsSourceAdapter>(sp => sp.GetRequiredService<GeminiOtelAdapter>());
+            services.AddSingleton<IAiLimitsSourceAdapter>(sp => sp.GetRequiredService<ManualDashboardAdapter>());
+            services.AddHostedSingleton<AiLimitsService>();
             services.AddHostedSingleton<InfoService>();
             services.AddHostedSingleton<ForegroundWatcher>();
             services.AddHostedSingleton<Lib.UsbBridge>();

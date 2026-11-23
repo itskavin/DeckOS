@@ -14,38 +14,25 @@ using DeckOS.Lib;
 namespace DeckOS.Services
 {
     /// <summary>
-    /// Uso de IA para o botão "Uso de IA": a porcentagem dos limites do plano (janela de 5 h e
-    /// semana) e os tokens de hoje e dos últimos 7 dias. Tudo sai do que as ferramentas já
-    /// guardam no PC; nada é enviado a terceiros.
-    /// <list type="bullet">
-    /// <item>Claude: limites pela mesma consulta que o /usage do Claude Code faz, com o login que ele
-    /// salvou em ~/.claude/.credentials.json (só leitura: o login nunca é renovado daqui, para não
-    /// derrubar o do Claude Code). Tokens pelos registros em ~/.claude/projects.</item>
-    /// <item>Codex: limites e tokens pelos eventos token_count em ~/.codex/sessions.</item>
-    /// </list>
+    /// Uso de IA legado para o botão "Uso de IA": mantém a contagem passiva de tokens
+    /// (~/.claude/projects e ~/.codex/sessions) e limites passivos locais (snapshot do statusLine
+    /// do Claude Code e registros locais do Codex). Não consulta endpoints não documentados da
+    /// Anthropic nem lê arquivos de credenciais OAuth.
     /// </summary>
     public class AiUsageService
     {
         public const string Claude = "claude";
         public const string Codex = "codex";
 
-        private const string ClaudeUsageUrl = "https://api.anthropic.com/api/oauth/usage";
-        // A Anthropic devolve 429 com facilidade (o próprio Claude Code também consulta):
-        // pergunta no máximo a cada 5 min e, recusado, espera cada vez mais (até 30 min).
-        private static readonly TimeSpan PlanCache = TimeSpan.FromMinutes(5);
-        private static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan Keep = TimeSpan.FromDays(8);
 
-        private readonly IHttpClientFactory _http;
-        private readonly SemaphoreSlim _lock = new(1, 1);
-        private (DateTime at, Plan plan)? _claudePlan;
-        private DateTime _claudeRetryAt = DateTime.MinValue;
-        private TimeSpan _claudeBackoff = TimeSpan.Zero;
-        private L.Text? _claudeError;
         private readonly LogScanner _claudeLogs = new(ParseClaudeLine, "\"usage\"");
         private readonly LogScanner _codexLogs = new(ParseCodexLine, "\"token_count\"");
 
-        public AiUsageService(IHttpClientFactory http) => _http = http;
+        public AiUsageService(IHttpClientFactory? http = null)
+        {
+            _ = http;
+        }
 
         /// <summary>Uma janela de limite: quanto já foi usado (0–100) e quando zera.</summary>
         public record Window(double Percent, DateTimeOffset? ResetsAt);
@@ -67,7 +54,7 @@ namespace DeckOS.Services
                 ? d
                 : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
 
-        // ---- Limites do plano ----
+        // ---- Limites do plano (somente fontes oficiais/passivas locais) ----
 
         public async Task<Plan> PlanAsync(string provider)
         {
@@ -77,97 +64,53 @@ namespace DeckOS.Services
                 return plan ?? throw new LocalizedException("Sem registros do Codex neste PC.");
             }
 
-            await _lock.WaitAsync();
+            var passive = await Task.Run(ReadPassiveClaudeStatusLinePlan);
+            if (passive != null) return passive;
+
+            throw new LocalizedException("Configure o statusLine do Claude Code em AI Limits para ver os limites sem consultas não oficiais.");
+        }
+
+        private static Plan? ReadPassiveClaudeStatusLinePlan()
+        {
+            var dir = Path.Combine(AppPaths.LocalDir, "ai-limits", "snapshots");
+            if (!Directory.Exists(dir)) return null;
+
             try
             {
-                var now = DateTime.UtcNow;
-                if (_claudePlan is { } c && now - c.at < PlanCache) return c.plan;
-                if (now < _claudeRetryAt)
-                    return _claudePlan?.plan ?? throw new LocalizedException(_claudeError!);
-                try
+                var latest = Directory.EnumerateFiles(dir, "claude-statusline-*.json")
+                    .Select(p => new FileInfo(p))
+                    .OrderByDescending(f => f.LastWriteTimeUtc)
+                    .FirstOrDefault();
+                if (latest == null) return null;
+
+                using var doc = JsonDocument.Parse(File.ReadAllText(latest.FullName));
+                var rl = doc.RootElement.TryGetProperty("rate_limits", out var inner) && inner.ValueKind == JsonValueKind.Object
+                    ? inner
+                    : doc.RootElement;
+
+                Window? Read(string name)
                 {
-                    var plan = await FetchClaudePlanAsync();
-                    _claudePlan = (now, plan);
-                    _claudeBackoff = TimeSpan.Zero;
-                    _claudeError = null;
-                    return plan;
-                }
-                catch (PlanBusyException busy)
-                {
-                    // Recusado: segura o último valor e só tenta de novo depois da espera.
-                    _claudeBackoff = busy.RetryAfter
-                        ?? (_claudeBackoff == TimeSpan.Zero ? PlanCache : TimeSpan.FromTicks(Math.Min(_claudeBackoff.Ticks * 2, MaxBackoff.Ticks)));
-                    _claudeRetryAt = now + _claudeBackoff;
-                    _claudeError = busy.Text;
-                    return _claudePlan?.plan ?? throw new LocalizedException(busy.Text);
-                }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
-                {
-                    // Login expirado, sem rede...: mostra o motivo, mas também não insiste a cada minuto.
-                    _claudeBackoff = PlanCache;
-                    _claudeRetryAt = now + PlanCache;
-                    _claudeError = ex switch
+                    if (!rl.TryGetProperty(name, out var w) || w.ValueKind != JsonValueKind.Object) return null;
+                    if (!w.TryGetProperty("used_percentage", out var u) || u.ValueKind != JsonValueKind.Number) return null;
+                    DateTimeOffset? resets = null;
+                    if (w.TryGetProperty("resets_at", out var r))
                     {
-                        LocalizedException le => le.Text,
-                        InvalidOperationException => new L.Text(ex.Message),
-                        _ => new L.Text("A Anthropic não respondeu."),
-                    };
-                    // Queda de rede passageira: o último valor ainda serve.
-                    if (ex is not InvalidOperationException && _claudePlan is { } last) return last.plan;
-                    throw new LocalizedException(_claudeError);
+                        if (r.ValueKind == JsonValueKind.Number && r.TryGetInt64(out var unix) && unix > 0)
+                            resets = DateTimeOffset.FromUnixTimeSeconds(unix);
+                        else if (r.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(r.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dt))
+                            resets = dt.ToUniversalTime();
+                    }
+                    return new Window(u.GetDouble(), resets);
                 }
+
+                var s = Read("five_hour");
+                var wk = Read("seven_day");
+                return s != null || wk != null ? new Plan(s, wk) : null;
             }
-            finally
+            catch
             {
-                _lock.Release();
+                return null;
             }
-        }
-
-        private async Task<Plan> FetchClaudePlanAsync()
-        {
-            var file = Path.Combine(ClaudeDir, ".credentials.json");
-            if (!File.Exists(file))
-                throw new LocalizedException("Entre no Claude Code neste PC para ver os limites.");
-
-            string? token;
-            long expires;
-            using (var creds = JsonDocument.Parse(await File.ReadAllTextAsync(file)))
-            {
-                if (!creds.RootElement.TryGetProperty("claudeAiOauth", out var o))
-                    throw new LocalizedException("Entre no Claude Code neste PC para ver os limites.");
-                token = o.TryGetProperty("accessToken", out var t) ? t.GetString() : null;
-                expires = o.TryGetProperty("expiresAt", out var e) && e.TryGetInt64(out var ms) ? ms : 0;
-            }
-            if (string.IsNullOrEmpty(token))
-                throw new LocalizedException("Entre no Claude Code neste PC para ver os limites.");
-            if (expires > 0 && DateTimeOffset.FromUnixTimeMilliseconds(expires) < DateTimeOffset.UtcNow)
-                throw new LocalizedException("O login do Claude Code expirou. Abra o Claude Code para renovar.");
-
-            var client = _http.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(10);
-            using var req = new HttpRequestMessage(HttpMethod.Get, ClaudeUsageUrl);
-            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
-            req.Headers.TryAddWithoutValidation("anthropic-beta", "oauth-2025-04-20");
-            req.Headers.UserAgent.ParseAdd("DeckOS");
-            using var resp = await client.SendAsync(req);
-            if (resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                throw new LocalizedException("O login do Claude Code expirou. Abra o Claude Code para renovar.");
-            if ((int)resp.StatusCode == 429 || (int)resp.StatusCode >= 500)
-            {
-                var wait = resp.Headers.RetryAfter?.Delta
-                    ?? (resp.Headers.RetryAfter?.Date is { } d ? d - DateTimeOffset.UtcNow : null);
-                throw new PlanBusyException(new L.Text("Anthropic pediu uma pausa; tento de novo logo."),
-                    wait is { } w && w > TimeSpan.Zero ? (w < MaxBackoff ? w : MaxBackoff) : null);
-            }
-            if (!resp.IsSuccessStatusCode)
-                throw new LocalizedException("A Anthropic não respondeu ({code}).", ("code", (int)resp.StatusCode));
-            return ParseClaudePlan(await resp.Content.ReadAsStringAsync());
-        }
-
-        private sealed class PlanBusyException : LocalizedException
-        {
-            public TimeSpan? RetryAfter { get; }
-            public PlanBusyException(L.Text text, TimeSpan? retryAfter) : base(text) => RetryAfter = retryAfter;
         }
 
         /// <summary>Resposta do /api/oauth/usage: five_hour e seven_day com utilization e resets_at.</summary>

@@ -13,12 +13,21 @@ class ActionCatalog {
 
   /// Idioma em que o catálogo foi buscado: o PC manda os textos traduzidos.
   String? _language;
+  Object? _host;
 
   /// Busca o catálogo no PC. Chamadas repetidas reaproveitam a primeira; trocar o
   /// idioma do app busca de novo.
   Future<void> load({bool force = false}) {
     final language = AppLanguage.current.value;
-    if (force || language != _language) _loading = null;
+    DeckOSClient client;
+    try {
+      client = Injector.get<DeckOSClient>();
+    } catch (_) {
+      return Future<void>.value(); // Standalone/offline editor uses the built-in catalog.
+    }
+    final host = (client, client.currentBaseUrl);
+    if (force || language != _language || host != _host) _loading = null;
+    _host = host;
     _language = language;
     return _loading ??= _fetch();
   }

@@ -146,6 +146,7 @@ class SignalRService {
     'ReceiveInfoState',
     'ReceiveNowPlaying',
     'ReceiveConnectedClients',
+    'ReceiveAiLimitsState',
   };
 
   /// Assina um evento de estado de provedor. Idempotente; vale também depois de
@@ -638,6 +639,8 @@ class SignalRService {
   }
 
   Future<void> updateUrl(String baseUrl, {String? apiKey}) async {
+    // Provider snapshots belong to this host; never seed a newly selected PC with them.
+    actionStates.value = {};
     // Marca como parada deliberada para o onclose do stop() abaixo nao agendar
     // uma reconexao para a URL ANTIGA; o init() em seguida limpa a flag.
     _stopped = true;

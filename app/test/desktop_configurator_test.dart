@@ -136,6 +136,8 @@ void main() {
       expect(actionSupported('media', linux), isFalse);
       expect(actionSupported('obs', linux), isTrue);
       expect(actionSupported('media', null), isTrue);
+      expect(actionSupported('windows', const PlatformInfo(os: 'linux', capabilities: {'power.lock'})), isTrue);
+      expect(actionSupported('windows', linux), isFalse);
 
       final groups = groupActions(fallbackActionCatalog, linux);
       final types = [for (final (_, list) in groups) ...list.map((s) => s.type)];

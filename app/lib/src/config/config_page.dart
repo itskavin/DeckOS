@@ -5,6 +5,9 @@ import 'package:deckos/src/services/server_discovery_service.dart';
 import 'package:deckos/src/services/signalr_service.dart';
 import 'package:deckos/core/core.dart';
 import 'package:deckos/src/stream_deck/backup/backup_buttons.dart';
+import 'package:deckos/src/ai_limits/ai_limits_models.dart';
+import 'package:deckos/src/ai_limits/ai_limits_settings_page.dart';
+import 'package:deckos/src/ai_limits/ai_limits_store.dart';
 import 'package:deckos/src/config/integrations_page.dart';
 import 'package:deckos/src/config/triggers_page.dart';
 import 'package:deckos/src/config/pc_switcher.dart';
@@ -85,6 +88,20 @@ class ConfigPageState extends State<ConfigPage> {
       final n = list.where((t) => (t as Map)['enabled'] != false).length;
       if (mounted) setState(() => _activeTriggers = n);
     } catch (_) {}
+    AiLimitsStore.instance.ensureInitialized();
+  }
+
+  String? _aiLimitsSummary(AiLimitsSnapshot? snap) {
+    if (snap == null) return null;
+    if (snap.sources.isEmpty) return tr('Não configurado');
+    final enabled = snap.enabledAccounts.length;
+    if (snap.attentionSourceCount > 0 && enabled == 0) {
+      return tr('Atenção');
+    }
+    if (enabled == 1) return tr('1 conta');
+    if (enabled > 1) return tr('{n} contas', {'n': '$enabled'});
+    final s = snap.sources.length;
+    return s == 1 ? tr('1 fonte') : tr('{n} fontes', {'n': '$s'});
   }
 
   SavedPc? get _currentPc =>
@@ -594,6 +611,16 @@ class ConfigPageState extends State<ConfigPage> {
         ),
       ]),
       _Section(tr('Integrações'), null, [
+        _row(
+          title: tr('Limites de IA'),
+          subtitle: tr('Claude, Codex, CLIProxyAPI e assinaturas conectadas'),
+          icon: Icons.speed_rounded,
+          color: c.orange,
+          value: _aiLimitsSummary(AiLimitsStore.instance.snapshot.value),
+          keywords:
+              'ai limits limites ia quota cota claude codex gemini copilot cliproxyapi usage uso',
+          onTap: () => _push(const AiLimitsSettingsPage()),
+        ),
         _row(
           title: tr('Integrações'),
           subtitle: info == null || info.isWindows

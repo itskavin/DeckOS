@@ -41,8 +41,8 @@ namespace DeckOS.Actions.Providers
 
         public async Task ExecuteAsync(ActionContext c)
         {
-            var command = c.Get("command");
-            if (command.Length == 0) return;
+            var command = c.Get("command", "playpause");
+            if (string.IsNullOrWhiteSpace(command)) throw new System.ArgumentException("Missing media command.");
 
             // sessionId vazio = "a sessao que esta tocando" (como as teclas de midia). Quem
             // resolve isso e o MediaControlService, dentro da MESMA operacao serializada
@@ -55,7 +55,7 @@ namespace DeckOS.Actions.Providers
             if (!result.Success)
             {
                 _logger.LogWarning("Midia: comando '{Command}' do deck nao foi aplicado.", command);
-                return;
+                throw new ActionExecutionException("action_not_applied", 503);
             }
 
             // Empurra o estado real pros clientes: o botao pinta otimista no toque e precisa

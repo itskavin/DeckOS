@@ -13,7 +13,11 @@ import 'package:deckos/src/stream_deck/layout/grid_placement.dart';
 import 'package:deckos/src/stream_deck/widgets/connection_chip.dart';
 import 'package:deckos/src/stream_deck/widgets/deck_layout_sheet.dart';
 import 'package:deckos/src/stream_deck/actions/action_catalog.dart';
+import 'package:deckos/src/stream_deck/deck_preloader.dart';
 import 'package:deckos/src/stream_deck/stream_deck_controller.dart';
+import 'package:deckos/src/ai_limits/ai_limits_settings_page.dart';
+import 'package:deckos/src/ai_limits/ai_limits_tile.dart';
+import 'package:deckos/src/ai_limits/ai_provider_style.dart';
 import 'package:deckos/src/stream_deck/widgets/ai_limits_demo_tile.dart';
 import 'package:deckos/src/stream_deck/widgets/dynamic_deck_button.dart';
 import 'package:deckos/src/stream_deck/widgets/button_editor_dialog.dart';
@@ -21,9 +25,16 @@ import 'package:deckos/src/stream_deck/widgets/copy_move_dialog.dart';
 import 'package:deckos/src/stream_deck/widgets/profile_settings_dialog.dart';
 import 'package:deckos/core/core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show DeviceGestureSettings, kTouchSlop;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show SchedulerPhase;
 import 'package:flutter/services.dart';
 import 'package:collection/collection.dart';
+
+/// Minimum touch slop (dp) for deck tiles and page swiping.
+/// Keeps small fingertip drift within Flutter's standard tolerance even when the
+/// platform supplies a smaller value. Real contact pressure is not measured here.
+const double kDeckTouchSlop = kTouchSlop;
 
 /// O deck no celular: foco total nas teclas. Arrastar para o lado troca de perfil; os
 /// controles (barra superior, faixa inferior e abas) recolhem sozinhos após 5 s sem
@@ -116,6 +127,28 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
   void Function()? _autoProfileCleanup;
   void Function()? _reconnectCleanup;
   void Function()? _pageSyncCleanup;
+  void Function()? _preloadCleanup;
+
+  void _schedulePrewarm({bool network = true}) {
+    if (WebMode.configurator) return;
+    final list = controller.profiles.value;
+    if (list.isEmpty) return;
+    final current = _activeProfile(list);
+    void run() {
+      if (!mounted) return;
+      DeckPreloader.instance.prewarm(
+        profiles: list,
+        current: current,
+        network: network && !controller.offline.value,
+      );
+    }
+
+    if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.idle) {
+      Future<void>.microtask(run);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => run());
+    }
+  }
 
   @override
   void initState() {
@@ -174,7 +207,25 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
       });
     });
 
-    _pageController = PageController();
+    final initialTop = topLevelPages(controller.profiles.value);
+    final initialCur = controller.currentProfile.value;
+    final initialPageIdx = initialCur == null
+        ? 0
+        : math.max(
+            0,
+            initialTop.indexWhere((p) =>
+                p.id == (topLevelPageOf(controller.profiles.value, initialCur)?.id ?? initialCur.id)),
+          );
+    _pageController = PageController(initialPage: initialPageIdx);
+
+    // Pré-carregamento limitado e não-bloqueante de dados/ícones das páginas após o 1º quadro.
+    _preloadCleanup = effect(() {
+      final list = controller.profiles.value;
+      final offline = controller.offline.value;
+      controller.currentProfile.value;
+      if (list.isEmpty) return;
+      untracked(() => _schedulePrewarm(network: !offline));
+    });
 
     // A página acompanha o perfil atual quando ele muda por fora do arrastar (último
     // perfil aberto, troca automática pelo app em foco).
@@ -204,14 +255,23 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
     });
 
     // Reconectou (PC reiniciado, Wi-Fi voltou): o deck pode ter mudado enquanto a
-    // conexão estava fora, e os avisos de mudança se perderam. Recarrega.
+    // conexão estava fora, e os avisos de mudança se perderam. Recarrega (evitando
+    // repetir o carregamento inicial se o hub conectou logo após initState já ter lido).
     var wasConnected = signalR.connectionStatus.value == 'Connected';
+    var sawDisconnect = false;
     _reconnectCleanup = effect(() {
       final connected = signalR.connectionStatus.value == 'Connected';
-      if (connected && !wasConnected) {
+      if (!connected && wasConnected) {
+        sawDisconnect = true;
+      } else if (connected && !wasConnected) {
+        final needsReload = sawDisconnect || controller.offline.value || !controller.hasLiveProfiles;
+        sawDisconnect = false;
         untracked(() {
-          if (!_editMode || !_editDirty) controller.loadProfiles();
-          _loadSharedGrid();
+          if (needsReload) {
+            if (!_editMode || !_editDirty) controller.loadProfiles();
+            _loadSharedGrid();
+          }
+          _schedulePrewarm(network: true);
         });
       }
       wasConnected = connected;
@@ -308,6 +368,7 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
   void dispose() {
     _chromeTimer?.cancel();
     _layoutSyncCleanup?.call();
+    _preloadCleanup?.call();
     _pageSyncCleanup?.call();
     _autoProfileCleanup?.call();
     _reconnectCleanup?.call();
@@ -599,6 +660,21 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
       _withChromePaused(() => showAiLimitsDemoSheet(context, b));
       return;
     }
+    // Cartão real de Limites de IA: toque abre detalhes/janelas/configuração sem disparar /press.
+    if (gesture == 'tap' &&
+        b.dynamicType == aiLimitsDynamicType &&
+        b.action == null &&
+        !b.toggle) {
+      _withChromePaused(
+        () => showAiLimitsDetailSheet(
+          context,
+          b,
+          onEditTile: () => _editButton(b),
+          onSettingsClosed: () => controller.loadProfiles(),
+        ),
+      );
+      return;
+    }
     // Botão de monitor ou de informação sem ação: só mostra, o toque não faz nada.
     if (gesture == 'tap' &&
         (b.dynamicType?.isNotEmpty ?? false) &&
@@ -655,18 +731,26 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
       _offlineNotice(messenger);
       return;
     }
-    controller.executeButtonAction(b, gesture: gesture).then((ok) {
-      if (!ok) _offlineNotice(messenger);
+    final diagStart = kDebugMode && kDeckTouchDiagnosticsEnabled ? DateTime.now() : null;
+    String? failureMessage;
+    controller.executeButtonAction(b, gesture: gesture, onFailure: (message) => failureMessage = message).then((ok) {
+      if (diagStart != null) {
+        final ms = DateTime.now().difference(diagStart).inMilliseconds;
+        debugPrint(
+          '[DeckTouchDiag] dispatch gesture=$gesture type=${type ?? (b.toggle ? 'toggle' : 'none')} ok=$ok elapsedMs=$ms',
+        );
+      }
+      if (!ok) _offlineNotice(messenger, message: failureMessage);
     });
   }
 
-  void _offlineNotice(ScaffoldMessengerState messenger) {
+  void _offlineNotice(ScaffoldMessengerState messenger, {String? message}) {
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(
-            tr('O PC não respondeu. Confira se o DeckOS está aberto nele.'),
+            message ?? tr('O PC não respondeu. Confira se o DeckOS está aberto nele.'),
           ),
           duration: const Duration(seconds: 3),
         ),
@@ -869,6 +953,7 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
                   ),
           for (final p in layout.placements)
             Positioned(
+              key: p.button.id.isNotEmpty ? ValueKey('deck-btn-${p.button.id}') : null,
               left: p.column * step,
               top: p.row * step,
               width: size(p.columnSpan),
@@ -1136,6 +1221,18 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
     return (min.columns, min.rows);
   }
 
+  static bool _isAiUsageProfile(DeckProfile p) {
+    if (p.id == aiLimitsDemoProfileId) return false;
+    final id = p.id.trim().toLowerCase();
+    final name = p.name.trim().toLowerCase();
+    return id == 'ai_usage' ||
+        id == 'ai_limits' ||
+        name == 'ai usage' ||
+        name == 'ai limits' ||
+        name == 'uso de ia' ||
+        name == 'limites de ia';
+  }
+
   /// Grade compartilhada explícita (escolhida pelo usuário no celular ou no PC).
   Map<String, int>? _explicitSharedGrid(
     ({int rows, int columns})? customGrid,
@@ -1187,6 +1284,13 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
         currentProfile != null &&
         profiles.isNotEmpty &&
         profiles.every((p) => p.buttons.isEmpty);
+
+    // Página dedicada de AI Usage vazia: oferece o atalho direto "Conectar uma fonte".
+    final emptyAiUsagePage = !firstRun &&
+        !_editMode &&
+        active != null &&
+        active.buttons.isEmpty &&
+        _isAiUsageProfile(active);
 
     // Área segura + respiro equilibrado (acompanha o espaçamento escolhido). Fora do modo
     // de edição as margens ficam constantes para esconder/mostrar os controles sem pular
@@ -1324,7 +1428,9 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
                   itemBuilder: (context, i) {
                     // Toque em áreas livres (fundo, margens, vãos ou células vazias) revela ou
                     // recolhe os controles sem interceptar toques ou gestos das teclas.
+                    final pageKey = ValueKey('deck-page-${topPages[i].id}');
                     final page = GestureDetector(
+                      key: reduce ? pageKey : null,
                       behavior: HitTestBehavior.opaque,
                       onTap: _handleUnusedAreaTap,
                       child: Padding(
@@ -1333,44 +1439,54 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
                       ),
                     );
                     if (reduce) return page;
-                    return _PageDepth(controller: _pageController, index: i, child: page);
+                    return _PageDepth(key: pageKey, controller: _pageController, index: i, child: page);
                   },
                 ),
               ),
             ),
           );
-          return Stack(
-            children: [
-              Positioned.fill(child: pages),
-              // Pasta aberta (perfil empilhado): entra com zoom a partir do centro.
-              Positioned.fill(
-                child: AnimatedSwitcher(
-                  duration: AppleMotion.of(context, AppleMotion.slow),
-                  reverseDuration: AppleMotion.of(context, AppleMotion.normal),
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: CurvedAnimation(parent: anim, curve: AppleMotion.easeOut),
-                    child: ScaleTransition(
-                      scale: Tween(begin: 0.82, end: 1.0)
-                          .animate(CurvedAnimation(parent: anim, curve: AppleMotion.snappy)),
-                      child: child,
+          final media = MediaQuery.of(context);
+          final deckTouchSlop = math.max(
+            media.gestureSettings.touchSlop ?? 0,
+            kDeckTouchSlop,
+          );
+          return MediaQuery(
+            data: media.copyWith(
+              gestureSettings: DeviceGestureSettings(touchSlop: deckTouchSlop),
+            ),
+            child: Stack(
+              children: [
+                Positioned.fill(child: pages),
+                // Pasta aberta (perfil empilhado): entra com zoom a partir do centro.
+                Positioned.fill(
+                  child: AnimatedSwitcher(
+                    duration: AppleMotion.of(context, AppleMotion.slow),
+                    reverseDuration: AppleMotion.of(context, AppleMotion.normal),
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: CurvedAnimation(parent: anim, curve: AppleMotion.easeOut),
+                      child: ScaleTransition(
+                        scale: Tween(begin: 0.82, end: 1.0)
+                            .animate(CurvedAnimation(parent: anim, curve: AppleMotion.snappy)),
+                        child: child,
+                      ),
                     ),
-                  ),
-                  child: folder == null
-                      ? const SizedBox.shrink(key: ValueKey('no-folder'))
-                      : KeyedSubtree(
-                          key: ValueKey('folder-${folder.id}'),
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: _handleUnusedAreaTap,
-                            child: Padding(
-                              padding: insets,
-                              child: _buildButtonGrid(folder, profiles, fitFor(folder)),
+                    child: folder == null
+                        ? const SizedBox.shrink(key: ValueKey('no-folder'))
+                        : KeyedSubtree(
+                            key: ValueKey('folder-${folder.id}'),
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _handleUnusedAreaTap,
+                              child: Padding(
+                                padding: insets,
+                                child: _buildButtonGrid(folder, profiles, fitFor(folder)),
+                              ),
                             ),
                           ),
-                        ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       );
@@ -1524,6 +1640,26 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
                         left: widget.leftNavInset == 0,
                         bottom: widget.bottomNavInset == 0,
                         child: _EmptyDeckHint(onEdit: _enterEditMode),
+                      ),
+                    ),
+                  // Página AI Usage vazia: atalho direto para conectar uma fonte real.
+                  if (emptyAiUsagePage)
+                    Positioned.fill(
+                      child: SafeArea(
+                        child: Center(
+                          child: _EmptyAiUsageCard(
+                            onConnect: () => _withChromePaused(() async {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const AiLimitsSettingsPage(
+                                    openWizardOnStart: true,
+                                  ),
+                                ),
+                              );
+                              if (mounted) controller.loadProfiles();
+                            }),
+                          ),
+                        ),
                       ),
                     ),
                   // Zona discreta e invisível no topo: puxar para baixo, tocar ou acionar por
@@ -2107,8 +2243,14 @@ class DeckPagePhysics extends PageScrollPhysics {
 
 /// Profundidade na troca de página: a que sai encolhe um pouco, apaga e anda mais
 /// devagar que o dedo (paralaxe); a que entra faz o contrário.
+///
+/// A estrutura da árvore (Opacity -> Transform -> Transform -> child) permanece invariante
+/// mesmo quando `t == 0` ou `t == 1`: alternar entre devolver `child!` e embrulhar em
+/// `Opacity`/`Transform` desmontava e remontava toda a página (e seus sliders/estados)
+/// duas vezes a cada arrasto. Em repouso (`opacity: 1`, `dx: 0`, `scale: 1`), o Flutter
+/// pula a camada de composição e aplica matriz identidade sem custo visual.
 class _PageDepth extends StatelessWidget {
-  const _PageDepth({required this.controller, required this.index, required this.child});
+  const _PageDepth({super.key, required this.controller, required this.index, required this.child});
 
   final PageController controller;
   final int index;
@@ -2121,19 +2263,22 @@ class _PageDepth extends StatelessWidget {
       child: child,
       builder: (context, child) {
         var d = 0.0;
-        if (controller.hasClients && controller.position.haveDimensions) {
+        final hasDims = controller.hasClients && controller.position.haveDimensions;
+        if (hasDims) {
           d = (controller.page ?? index.toDouble()) - index;
         }
         final t = d.abs().clamp(0.0, 1.0);
-        // Parada ao lado (|d| = 1) a página fica onde o PageView a pôs, fora da tela: o
-        // deslocamento é zero nas pontas e máximo no meio do arrasto.
-        if (t == 0 || t == 1) return child!;
-        final width = controller.position.viewportDimension;
+        // Parada ao lado (|d| = 1) ou assentada (|d| = 0): identidade, mantendo a árvore
+        // estável para não descartar e recriar os widgets da página.
+        final atRest = !hasDims || t == 0 || t == 1;
+        final opacity = atRest ? 1.0 : 1 - 0.45 * t;
+        final dx = atRest ? 0.0 : d.sign * controller.position.viewportDimension * 0.12 * math.sin(math.pi * t);
+        final scale = atRest ? 1.0 : 1 - 0.07 * t;
         return Opacity(
-          opacity: 1 - 0.45 * t,
+          opacity: opacity,
           child: Transform.translate(
-            offset: Offset(d.sign * width * 0.12 * math.sin(math.pi * t), 0),
-            child: Transform.scale(scale: 1 - 0.07 * t, child: child),
+            offset: Offset(dx, 0),
+            child: Transform.scale(scale: scale, child: child),
           ),
         );
       },
@@ -2161,7 +2306,7 @@ class _EdgeRevealZone extends StatelessWidget {
         },
         child: const SizedBox(
           width: double.infinity,
-          height: 22,
+          height: 14,
         ),
       ),
     );
@@ -2508,6 +2653,63 @@ class _EmptyDeckHint extends StatelessWidget {
                 icon: Icons.add_rounded,
                 compact: true,
                 onPressed: onEdit,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Página AI Usage vazia: atalho direto para conectar uma fonte real sem sair do deck.
+class _EmptyAiUsageCard extends StatelessWidget {
+  final VoidCallback onConnect;
+
+  const _EmptyAiUsageCard({required this.onConnect});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppleColors.of(context);
+    final type = AppleTextStyles.of(context);
+    return Padding(
+      padding: const EdgeInsets.all(AppleSpacing.lg),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: GlassPanel(
+          radius: AppleRadii.xl,
+          padding: const EdgeInsets.all(AppleSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: c.orange.withValues(alpha: c.isDark ? 0.20 : 0.14),
+                  borderRadius: BorderRadius.circular(AppleRadii.md),
+                ),
+                child: Icon(Icons.speed_rounded, color: c.orange, size: 26),
+              ),
+              const SizedBox(height: AppleSpacing.sm),
+              Text(
+                tr('Acompanhe seus limites de IA'),
+                textAlign: TextAlign.center,
+                style: type.headline.copyWith(color: c.label),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                tr(
+                  'Conecte seu CLIProxyAPI local, Codex app-server ou hook oficial do Claude Code para ver janelas reais em cartões móveis no deck.',
+                ),
+                textAlign: TextAlign.center,
+                style: type.footnote.copyWith(color: c.secondaryLabel),
+              ),
+              const SizedBox(height: AppleSpacing.md),
+              PrimaryButton(
+                label: tr('Conectar uma fonte'),
+                icon: Icons.add_rounded,
+                onPressed: onConnect,
               ),
             ],
           ),

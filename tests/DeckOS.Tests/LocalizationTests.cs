@@ -67,9 +67,9 @@ namespace DeckOS.Tests
         [Fact]
         public void Texto_GuardaOPortuguesETraduzNaHora()
         {
-            var text = new L.Text("A Anthropic não respondeu ({code}).", ("code", 503));
-            Assert.Equal("A Anthropic não respondeu (503).", text.Plain);
-            Assert.Equal("Anthropic didn't respond (503).", text.In("en"));
+            var text = new L.Text("Sem permissão");
+            Assert.Equal("Sem permissão", text.Plain);
+            Assert.Equal("No permission", text.In("en"));
             L.Language = "en";
             try { Assert.Equal(text.In("en"), L.Message(new LocalizedException(text))); }
             finally { L.Language = "pt"; }

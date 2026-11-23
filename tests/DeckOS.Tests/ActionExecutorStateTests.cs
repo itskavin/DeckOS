@@ -46,7 +46,10 @@ namespace DeckOS.Tests
         {
             var (executor, all) = Make(new Stateful { Fail = true });
 
-            await executor.ExecuteActionAsync(new DeckAction { Type = "fake" }, "b1");
+            var error = await Assert.ThrowsAsync<ActionExecutionException>(() =>
+                executor.ExecuteActionAsync(new DeckAction { Type = "fake" }, "b1"));
+            Assert.Equal("action_failed", error.Code);
+            Assert.Equal(503, error.StatusCode);
 
             all.Verify(c => c.SendCoreAsync("ReceiveFakeState", It.IsAny<object?[]>(), It.IsAny<CancellationToken>()),
                 Times.Once);
