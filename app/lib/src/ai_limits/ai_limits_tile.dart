@@ -899,6 +899,11 @@ String _windowShortLabel(AiLimitsWindow w) => switch (w.kind) {
       _ => w.label.isNotEmpty ? w.label : w.kind,
     };
 
+/// Shared wording for the account dashboard and deck tiles.
+String aiWindowShortLabel(AiLimitsWindow w) => _windowShortLabel(w);
+String aiWindowLabelWithPool(AiLimitsWindow w, String base) => _windowLabelWithPool(w, base);
+String aiFormatNativeMetric(AiLimitsWindow w) => _formatNativeMetric(w);
+
 /// Adds the model pool name for extra pools ("5h · Spark") so two 5h rows never look alike.
 String _windowLabelWithPool(AiLimitsWindow w, String base) {
   if (w.isMainPool) return base;

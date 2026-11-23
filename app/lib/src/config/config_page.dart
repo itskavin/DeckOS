@@ -518,7 +518,7 @@ class ConfigPageState extends State<ConfigPage> {
     final lang = AppLanguage.choice.value;
     final langName =
         AppLanguage.available.where((l) => l.code == lang).firstOrNull?.name ??
-        tr('Automático');
+        tr('Padrão (inglês)');
     final client = Injector.get<DeckOSClient>();
 
     return [
@@ -597,12 +597,12 @@ class ConfigPageState extends State<ConfigPage> {
             final v = await showChoiceSheet<String>(
               context: context,
               title: tr('Idioma'),
-              footer: tr('Automático segue o idioma do aparelho.'),
+              footer: tr('O padrão é inglês. Selecione outro idioma para alterá-lo.'),
               selected: AppLanguage.available.any((l) => l.code == lang)
                   ? lang
                   : 'auto',
               choices: [
-                Choice('auto', tr('Automático')),
+                Choice('auto', tr('Padrão (inglês)')),
                 for (final l in AppLanguage.available) Choice(l.code, l.name),
               ],
             );

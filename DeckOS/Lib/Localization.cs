@@ -19,7 +19,7 @@ namespace DeckOS.Lib
     /// O idioma e por requisicao (AsyncLocal), marcado pelo middleware UseLanguage. No SignalR,
     /// cada conexao entra no grupo do idioma dela e SendLocalizedAsync monta a mensagem uma vez
     /// por idioma. O que o servidor calcula em segundo plano guarda um L.Text (portugues + valores)
-    /// e so traduz na hora de enviar. A bandeja e as janelas do PC usam L.Ui (idioma do Windows).
+    /// e so traduz na hora de enviar. A bandeja e as janelas do PC usam L.Ui (ingles por padrao).
     ///
     /// Os testes (LocalizationCoverageTests) leem o codigo-fonte e falham se um texto passado a
     /// L.T/L.Ui/L.Text nao tiver traducao, ou se sobrar traducao de texto que nao existe mais.
@@ -102,15 +102,15 @@ namespace DeckOS.Lib
         }
 
         /// <summary>
-        /// Texto da bandeja e das janelas do PC: segue o idioma do Windows (nao ha requisicao).
-        /// Windows num idioma sem arquivo ve o ingles.
+        /// Native tray and dialogs default to English, independent of Windows locale.
+        /// Request-specific language choices continue to apply to L.T and L.Text.
         /// </summary>
         public static string Ui(string pt) =>
-            TFor(LanguageOf(System.Globalization.CultureInfo.CurrentUICulture.Name), pt);
+            TFor(Fallback, pt);
 
         public static string Ui(string pt, params (string key, object? value)[] args)
         {
-            var language = LanguageOf(System.Globalization.CultureInfo.CurrentUICulture.Name);
+            var language = Fallback;
             return Fill(TFor(language, pt), language, args);
         }
 

@@ -26,7 +26,7 @@ class AppearanceSettingsPage extends StatelessWidget {
               .where((l) => l.code == lang)
               .firstOrNull
               ?.name ??
-          tr('Automático');
+          tr('Padrão (inglês)');
       return SettingsScaffold(
         title: tr('Aparência'),
         actions: [
@@ -172,7 +172,7 @@ class AppearanceSettingsPage extends StatelessWidget {
           // Um item por arquivo de idioma: idioma novo aparece aqui sozinho.
           InsetGroupedSection(
             header: tr('Idioma'),
-            footer: tr('Automático segue o idioma do aparelho.'),
+            footer: tr('O padrão é inglês. Selecione outro idioma para alterá-lo.'),
             children: [
               ListRow(
                 leading: ListRowIcon(Icons.language_rounded, color: c.blue),
@@ -185,7 +185,7 @@ class AppearanceSettingsPage extends StatelessWidget {
                     title: tr('Idioma'),
                     selected: langCode,
                     choices: [
-                      Choice('auto', tr('Automático')),
+                      Choice('auto', tr('Padrão (inglês)')),
                       for (final l in AppLanguage.available)
                         Choice(l.code, l.name),
                     ],

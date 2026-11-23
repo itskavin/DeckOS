@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,8 +48,9 @@ class AppLanguage {
   /// Idiomas com arquivo, em ordem alfabética do código.
   static List<LanguageInfo> get available => _available;
 
-  /// Escolha do usuário: 'auto' (idioma do aparelho) ou o código de um idioma.
-  static final choice = signal('auto');
+  /// English is the default. Other languages are used only when explicitly selected.
+  /// Legacy 'auto' preferences also resolve to English, independent of device locale.
+  static final choice = signal(fallback);
 
   // Muda quando chegam os arquivos: o idioma do aparelho pode ter acabado de ganhar um.
   static final _installed = signal(0);
@@ -65,8 +65,7 @@ class AppLanguage {
 
   static String resolve(String choice) {
     if (choice != 'auto' && _has(choice)) return choice;
-    final device = PlatformDispatcher.instance.locale.languageCode;
-    return _has(device) ? device : fallback;
+    return fallback;
   }
 
   static LanguageInfo get info =>
@@ -99,7 +98,7 @@ class AppLanguage {
     Future<void> loadChoice() async {
       try {
         final prefs = await SharedPreferences.getInstance();
-        choice.value = prefs.getString(_prefKey) ?? 'auto';
+        choice.value = prefs.getString(_prefKey) ?? fallback;
       } catch (_) {}
     }
 

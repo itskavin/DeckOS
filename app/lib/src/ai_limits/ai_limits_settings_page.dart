@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config/settings_kit.dart';
 import '../connection/pc_store.dart';
 import 'ai_limits_models.dart';
+import 'ai_limits_dashboard.dart';
 import 'ai_limits_store.dart';
 import 'ai_provider_style.dart';
 
@@ -26,7 +27,9 @@ class AiLimitsSettingsPage extends StatefulWidget {
 class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
   final AiLimitsStore _store = AiLimitsStore.instance;
   Timer? _cooldownTick;
+  int _previousCooldown = 0;
   bool _addingTiles = false;
+  bool _showRemaining = false;
   (BannerTone, String)? _notice;
 
   @override
@@ -35,9 +38,11 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
     _store.ensureInitialized();
     unawaited(_store.load(silent: _store.snapshot.value != null));
     _cooldownTick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && _store.remainingCooldownSeconds() > 0) {
+      final cooldown = _store.remainingCooldownSeconds();
+      if (mounted && (cooldown > 0 || _previousCooldown > 0)) {
         setState(() {});
       }
+      _previousCooldown = cooldown;
     });
     if (widget.openWizardOnStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -66,7 +71,10 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
     }
   }
 
-  Future<void> _openOnboardingWizard({AiLimitsSource? editing, String? initialKind}) async {
+  Future<void> _openOnboardingWizard({
+    AiLimitsSource? editing,
+    String? initialKind,
+  }) async {
     // The picker and its "Detected" badges come from the PC's capabilities: wait for the
     // first snapshot instead of showing generic fallbacks.
     if (_store.snapshot.value == null) await _store.load(silent: true);
@@ -85,7 +93,9 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
     if (result.addedTileCount > 0) {
       _showNotice(
         BannerTone.success,
-        tr('{n} cartões adicionados à página AI Usage.', {'n': '${result.addedTileCount}'}),
+        tr('{n} cartões adicionados à página AI Usage.', {
+          'n': '${result.addedTileCount}',
+        }),
       );
     } else if (result.saved) {
       _showNotice(BannerTone.success, tr('Fonte salva.'));
@@ -151,14 +161,21 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
             filled: true,
             fillColor: AppleColors.of(context).tertiaryFill,
             hintText: tr('Ex.: Pessoal, Trabalho'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
           ),
           onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
         ),
       ),
       actions: [
         AppleDialogAction(label: tr('Cancelar')),
-        AppleDialogAction(label: tr('Salvar'), isDefault: true, value: '\u0000'),
+        AppleDialogAction(
+          label: tr('Salvar'),
+          isDefault: true,
+          value: '\u0000',
+        ),
       ],
     );
     final next = (res == '\u0000' ? ctrl.text.trim() : res)?.trim();
@@ -218,7 +235,9 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
       } else {
         _showNotice(
           BannerTone.success,
-          tr('{n} cartões adicionados à página AI Usage.', {'n': '${res.added}'}),
+          tr('{n} cartões adicionados à página AI Usage.', {
+            'n': '${res.added}',
+          }),
         );
       }
     } catch (_) {
@@ -253,6 +272,8 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
 
       return SettingsScaffold(
         title: tr('Limites de IA'),
+        maxWidth: 1040,
+        largeTitle: MediaQuery.sizeOf(context).height >= 520,
         subtitle: _headerSummary(snap),
         actions: [
           IconButton(
@@ -271,7 +292,9 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
           ),
         ],
         bottom: PrimaryButton(
-          label: sources.isEmpty ? tr('Conectar uma fonte') : tr('Adicionar fonte'),
+          label: sources.isEmpty
+              ? tr('Conectar uma fonte')
+              : tr('Adicionar fonte'),
           icon: Icons.add_rounded,
           expand: true,
           onPressed: () => _openOnboardingWizard(),
@@ -289,7 +312,7 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
                 AppleSpacing.md,
               ),
             ),
-          if (error != null && snap == null)
+          if (error != null)
             AppleBanner(
               tone: BannerTone.warning,
               message: error,
@@ -299,12 +322,6 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
                 AppleSpacing.screen,
                 AppleSpacing.md,
               ),
-            ),
-          if (!loading && snap != null)
-            _DetectedSection(
-              tools: _DetectedTool.from(snap),
-              platform: snap.capabilities.platform,
-              onTap: _onDetectedTap,
             ),
           if (loading)
             const Padding(
@@ -333,13 +350,88 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
               ),
             )
           else ...[
+            if (accounts.isNotEmpty) ...[
+              AiLimitsOverview(accounts: enabledAccounts),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppleSpacing.screen,
+                ),
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 16,
+                  runSpacing: 8,
+                  children: [
+                    Text(
+                      tr('Uso por conta'),
+                      style: AppleTextStyles.of(context).title3,
+                    ),
+                    SegmentedButton<bool>(
+                      segments: [
+                        ButtonSegment(value: false, label: Text(tr('Usado'))),
+                        ButtonSegment(value: true, label: Text(tr('Restante'))),
+                      ],
+                      selected: {_showRemaining},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (v) =>
+                          setState(() => _showRemaining = v.first),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppleSpacing.screen,
+                  8,
+                  AppleSpacing.screen,
+                  16,
+                ),
+                child: Text(
+                  tr(
+                    'Cada conta e janela tem seu próprio limite. Os valores não são somados.',
+                  ),
+                  style: AppleTextStyles.of(context).footnote.copyWith(
+                    color: AppleColors.of(context).secondaryLabel,
+                  ),
+                ),
+              ),
+              for (final provider
+                  in accounts.map((a) => a.provider).toSet()) ...[
+                AiSectionTitle(
+                  AiProviderStyle.resolve(
+                    provider,
+                    fallbackLabel: accounts
+                        .firstWhere((a) => a.provider == provider)
+                        .providerLabel,
+                  ).displayName,
+                ),
+                AiCardGrid(
+                  count: accounts.where((a) => a.provider == provider).length,
+                  itemBuilder: (context, i, width) {
+                    final a = accounts
+                        .where((a) => a.provider == provider)
+                        .elementAt(i);
+                    return AiAccountUsageCard(
+                      key: ValueKey('ai-account-${a.id}'),
+                      account: a,
+                      showRemaining: _showRemaining,
+                      width: width,
+                      onOpen: () => _openAccountActions(a),
+                    );
+                  },
+                ),
+                const SizedBox(height: AppleSpacing.lg),
+              ],
+            ],
             InsetGroupedSection(
               header: tr('Fontes conectadas'),
-              footer: snap?.capabilities.platform != null &&
+              footer:
+                  snap?.capabilities.platform != null &&
                       snap!.capabilities.platform != 'unknown'
-                  ? tr('Host do PC: {os} · Somente leitura passiva ou interfaces oficiais locais.', {
-                      'os': _platformLabel(snap.capabilities.platform),
-                    })
+                  ? tr(
+                      'Host do PC: {os} · Somente leitura passiva ou interfaces oficiais locais.',
+                      {'os': _platformLabel(snap.capabilities.platform)},
+                    )
                   : null,
               children: [
                 for (final s in sources)
@@ -353,23 +445,6 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
                   ),
               ],
             ),
-            if (accounts.isNotEmpty)
-              InsetGroupedSection(
-                header: tr('Contas'),
-                footer: tr(
-                  'Cada cartão no deck mostra uma conta separada, sem somar porcentagens entre assinaturas.',
-                ),
-                children: [
-                  for (final a in accounts)
-                    _AccountRow(
-                      account: a,
-                      onToggle: (v) => _toggleAccount(a, v),
-                      onRename: () => _renameAccount(a),
-                      onAddTile: () => _addAccountsToDeck([a]),
-                      onRemove: () => _confirmRemoveAccount(a),
-                    ),
-                ],
-              ),
             if (enabledAccounts.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
@@ -390,9 +465,95 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
                 ),
               ),
           ],
+          if (!loading && snap != null)
+            _DetectedSection(
+              tools: _DetectedTool.from(snap),
+              platform: snap.capabilities.platform,
+              onTap: _onDetectedTap,
+            ),
         ],
       );
     });
+  }
+
+  Future<void> _openAccountActions(AiLimitsAccount account) async {
+    final choice = await showSettingsSheet<String>(
+      context: context,
+      title: account.displayTitle,
+      builder: (sheet) => ListView(
+        shrinkWrap: true,
+        children: [
+          InsetGroupedSection(
+            children: [
+              ListRow(
+                title: account.enabled
+                    ? tr('Desativar conta')
+                    : tr('Ativar conta'),
+                onTap: () => Navigator.of(sheet).pop('toggle'),
+              ),
+              ListRow(
+                title: tr('Adicionar cartão à página AI Usage'),
+                onTap: () => Navigator.of(sheet).pop('add_tile'),
+              ),
+              ListRow(
+                title: tr('Renomear'),
+                onTap: () => Navigator.of(sheet).pop('rename'),
+              ),
+              if (account.dashboardUrl != null &&
+                  account.dashboardUrl!.isNotEmpty)
+                ListRow(
+                  title: tr('Abrir painel oficial'),
+                  onTap: () => Navigator.of(sheet).pop('dashboard'),
+                ),
+              ListRow(
+                title: tr('Remover do DeckOS'),
+                destructive: true,
+                onTap: () => Navigator.of(sheet).pop('remove'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'toggle') await _toggleAccount(account, !account.enabled);
+    if (choice == 'add_tile') await _addAccountsToDeck([account]);
+    if (choice == 'rename') await _renameAccount(account);
+    if (choice == 'remove') await _confirmRemoveAccount(account);
+    if (choice == 'dashboard') {
+      final uri = Uri.tryParse(account.dashboardUrl ?? '');
+      if (uri != null) {
+        try {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      }
+    }
+  }
+
+  static String _accountPreview(AiLimitsAccount acct) {
+    if (!acct.enabled) return tr('Desativado');
+    if (acct.isAuthRequired) return tr('Autenticação necessária');
+    final shown = acct.selectWindows(const ['five_hour', 'weekly']);
+    final parts = <String>[];
+    for (final w in shown) {
+      if (w.hasPercent) {
+        final lbl = w.kind == 'five_hour'
+            ? tr('5h')
+            : (w.kind == 'weekly' ? tr('Semanal') : w.label);
+        parts.add(tr('{janela} {p}% usado', {
+          'janela': lbl,
+          'p': '${w.effectiveUsedPercent!.round()}',
+        }));
+      }
+    }
+    if (parts.isNotEmpty) {
+      final stale = acct.isStale || shown.any((w) => w.isEffectivelyStale());
+      return stale ? '${parts.join(' · ')} (${tr('Antigo')})' : parts.join(' · ');
+    }
+    if (acct.quotaStatus == 'manual_only') return tr('Somente painel oficial');
+    if (acct.quotaStatus == 'local_only') return tr('Contagem local');
+    if (acct.quotaStatus == 'awaiting_data') return tr('Aguardando dados');
+    return tr('Uso indisponível');
   }
 
   static String _headerSummary(AiLimitsSnapshot? snap) {
@@ -406,10 +567,14 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
           ? tr('1 fonte conectada · aguardando contas')
           : tr('{n} fontes · aguardando contas', {'n': '$sCount'});
     }
-    return tr('{s} fontes · {a} contas ativas', {'s': '$sCount', 'a': '$aCount'});
+    return tr('{s} fontes · {a} contas ativas', {
+      's': '$sCount',
+      'a': '$aCount',
+    });
   }
 
-  static String _platformLabel(String platform) => switch (platform.toLowerCase()) {
+  static String _platformLabel(String platform) =>
+      switch (platform.toLowerCase()) {
         'windows' => 'Windows',
         'macos' => 'macOS',
         'linux' => 'Linux',
@@ -521,126 +686,6 @@ class _SourceRow extends StatelessWidget {
       'degraded' => tr('Parcial'),
       _ => tr('Erro'),
     };
-  }
-}
-
-class _AccountRow extends StatelessWidget {
-  final AiLimitsAccount account;
-  final ValueChanged<bool> onToggle;
-  final VoidCallback onRename;
-  final VoidCallback onAddTile;
-  final VoidCallback onRemove;
-
-  const _AccountRow({
-    required this.account,
-    required this.onToggle,
-    required this.onRename,
-    required this.onAddTile,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = AppleColors.of(context);
-    final style = AiProviderStyle.resolve(
-      account.provider,
-      fallbackLabel: account.providerLabel,
-    );
-    final preview = _accountPreview(account);
-
-    return ListRow(
-      leading: ListRowIcon(style.icon, color: style.legibleOn(dark: c.isDark)),
-      title: account.displayTitle,
-      subtitle: [
-        if (account.plan != null && account.plan!.isNotEmpty) account.plan!,
-        preview,
-      ].where((e) => e.isNotEmpty).join(' · '),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppleSwitch(value: account.enabled, onChanged: onToggle),
-          IconButton(
-            tooltip: tr('Opções'),
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.more_horiz_rounded, size: 20, color: c.secondaryLabel),
-            onPressed: () => _showMenu(context),
-          ),
-        ],
-      ),
-      onTap: () => _showMenu(context),
-    );
-  }
-
-  Future<void> _showMenu(BuildContext context) async {
-    final choice = await showSettingsSheet<String>(
-      context: context,
-      title: account.displayTitle,
-      builder: (sheet) => ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.only(top: AppleSpacing.xs),
-        children: [
-          InsetGroupedSection(
-            children: [
-              ListRow(
-                title: tr('Adicionar cartão à página AI Usage'),
-                onTap: () => Navigator.of(sheet).pop('add_tile'),
-              ),
-              ListRow(
-                title: tr('Renomear'),
-                onTap: () => Navigator.of(sheet).pop('rename'),
-              ),
-              if (account.dashboardUrl != null && account.dashboardUrl!.isNotEmpty)
-                ListRow(
-                  title: tr('Abrir painel oficial'),
-                  onTap: () => Navigator.of(sheet).pop('dashboard'),
-                ),
-              ListRow(
-                title: tr('Remover do DeckOS'),
-                destructive: true,
-                onTap: () => Navigator.of(sheet).pop('remove'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-    if (choice == 'add_tile') onAddTile();
-    if (choice == 'rename') onRename();
-    if (choice == 'remove') onRemove();
-    if (choice == 'dashboard' && account.dashboardUrl != null) {
-      final uri = Uri.tryParse(account.dashboardUrl!);
-      if (uri != null) {
-        try {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        } catch (_) {}
-      }
-    }
-  }
-
-  static String _accountPreview(AiLimitsAccount acct) {
-    if (!acct.enabled) return tr('Desativado');
-    if (acct.isAuthRequired) return tr('Autenticação necessária');
-    final shown = acct.selectWindows(const ['five_hour', 'weekly']);
-    final parts = <String>[];
-    for (final w in shown) {
-      if (w.hasPercent) {
-        final lbl = w.kind == 'five_hour'
-            ? tr('5h')
-            : (w.kind == 'weekly' ? tr('Semanal') : w.label);
-        parts.add(tr('{janela} {p}% usado', {
-          'janela': lbl,
-          'p': '${w.effectiveUsedPercent!.round()}',
-        }));
-      }
-    }
-    if (parts.isNotEmpty) {
-      final stale = acct.isStale || shown.any((w) => w.isEffectivelyStale());
-      return stale ? '${parts.join(' · ')} (${tr('Antigo')})' : parts.join(' · ');
-    }
-    if (acct.quotaStatus == 'manual_only') return tr('Somente painel oficial');
-    if (acct.quotaStatus == 'local_only') return tr('Contagem local');
-    if (acct.quotaStatus == 'awaiting_data') return tr('Aguardando dados');
-    return tr('Uso indisponível');
   }
 }
 
@@ -1366,7 +1411,7 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
                     color: AiProviderStyle.resolve(a.provider).legibleOn(dark: c.isDark),
                   ),
                   title: a.displayTitle,
-                  subtitle: _AccountRow._accountPreview(a),
+                  subtitle: _AiLimitsSettingsPageState._accountPreview(a),
                   trailing: !_isEditing
                       ? Checkbox(
                           value: _selectedPreviewAccountIds.contains(a.id),

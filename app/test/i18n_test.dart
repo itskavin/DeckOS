@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:ui' show Locale;
 
 import 'package:deckos/core/i18n/i18n.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Chaves literais de `tr('...')` no código do app (texto montado com `$` fica de fora).
 Set<String> _literalKeys() {
@@ -64,9 +66,32 @@ void main() {
   });
 
   test('idioma sem arquivo cai no inglês', () {
-    // O aparelho de teste está em inglês (en_US).
     expect(AppLanguage.resolve('xx'), 'en');
     expect(AppLanguage.resolve('auto'), 'en');
+  });
+
+  testWidgets('fresh, automatic and unsupported choices use English on a Portuguese device', (tester) async {
+    tester.binding.platformDispatcher.localeTestValue = const Locale('pt', 'BR');
+    addTearDown(tester.binding.platformDispatcher.clearLocaleTestValue);
+    for (final saved in <String?>[null, 'auto', 'xx']) {
+      SharedPreferences.setMockInitialValues({if (saved != null) 'app_language': saved});
+      await tester.runAsync(AppLanguage.load);
+      expect(AppLanguage.current.value, 'en', reason: 'saved choice: $saved');
+      expect(AppLanguage.header, 'en');
+      expect(tr('Salvar'), 'Save');
+    }
+  });
+
+  testWidgets('deliberate saved language choices remain selectable and persistent', (tester) async {
+    for (final code in ['pt', 'es', 'hi', 'en']) {
+      SharedPreferences.setMockInitialValues({'app_language': code, 'keep_screen_on': true});
+      await tester.runAsync(AppLanguage.load);
+      expect(AppLanguage.current.value, code);
+      await AppLanguage.set(code);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('app_language'), code);
+      expect(prefs.getBool('keep_screen_on'), isTrue);
+    }
   });
 
   test('cabeçalho Accept-Language é o código do idioma', () {

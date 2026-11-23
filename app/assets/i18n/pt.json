@@ -1,5 +1,25 @@
 {
   "@language": "Português",
   "@locale": "pt-BR",
-  "@decimal": ","
+  "@decimal": ",",
+  "Maior uso": "Maior uso",
+  "Próximo reinício": "Próximo reinício",
+  "Sem leituras": "Sem leituras",
+  "Sem horário": "Sem horário",
+  "{n} ao vivo": "{n} ao vivo",
+  "{n} precisam de atenção": "{n} precisam de atenção",
+  "Reinicia em {t}": "Reinicia em {t}",
+  "Reinicia {t}": "Reinicia {t}",
+  "Aguardando nova leitura": "Aguardando nova leitura",
+  "Opções da conta": "Opções da conta",
+  "livre": "livre",
+  "usado": "usado",
+  "Usado": "Usado",
+  "Restante": "Restante",
+  "Uso por conta": "Uso por conta",
+  "Ativar conta": "Ativar conta",
+  "Desativar conta": "Desativar conta",
+  "Cada conta e janela tem seu próprio limite. Os valores não são somados.": "Cada conta e janela tem seu próprio limite. Os valores não são somados.",
+  "Padrão (inglês)": "Padrão (inglês)",
+  "O padrão é inglês. Selecione outro idioma para alterá-lo.": "O padrão é inglês. Selecione outro idioma para alterá-lo."
 }

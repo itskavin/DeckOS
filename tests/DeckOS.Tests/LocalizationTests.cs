@@ -33,6 +33,31 @@ namespace DeckOS.Tests
         public void SemIdioma_SaiEmIngles() =>
             Assert.Equal("Open program", L.T("Abrir programa"));
 
+        [Theory]
+        [InlineData("pt-BR")]
+        [InlineData("es-ES")]
+        [InlineData("hi-IN")]
+        public void NativeUiDefaultsToEnglishRegardlessOfWindowsCulture(string culture)
+        {
+            var previous = System.Globalization.CultureInfo.CurrentUICulture;
+            var previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+            try
+            {
+                System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo(culture);
+                System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo(culture);
+                Assert.Equal("Open program", L.Ui("Abrir programa"));
+                Assert.Equal("1.5", L.Ui("{n}", ("n", 1.5)));
+                Assert.Equal("en", L.LanguageOf(null));
+                Assert.Equal("en", L.LanguageOf("unsupported"));
+                Assert.Equal("pt", L.LanguageOf("pt-BR"));
+            }
+            finally
+            {
+                System.Globalization.CultureInfo.CurrentUICulture = previous;
+                System.Globalization.CultureInfo.CurrentCulture = previousCulture;
+            }
+        }
+
         [Fact]
         public void ComIngles_DevolveATraducao() =>
             Assert.Equal("Open program", InEnglish(() => L.T("Abrir programa")));
