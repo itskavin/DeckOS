@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -9,17 +9,50 @@ using DeckOS.Lib;
 
 namespace DeckOS.Services;
 
-// Kept separate from process creation: single-instance launchers can exit while an older
-// process owns the window. Never use the launcher PID or a display title as app identity.
+// Brings the launched app's user-facing window in front of the active app.
+//
+// A deck tap arrives over the network, so Windows treats DeckOS as a background process:
+// SetForegroundWindow is refused while the user is active (foreground lock), and the apps
+// DeckOS starts or wakes inherit that refusal, so their windows open behind. Restoring a
+// minimized window is still honored (PowerToys Window Walker relies on the same rule), so a
+// visible window that refuses activation is minimized without activation and restored, once
+// (Macro Deck's fallback, without its SW_MINIMIZE side effects). Every step is verified
+// against the real foreground window. No input injection, topmost, lock changes or touching
+// other apps' windows.
+//
+// Identity comes from launch metadata: shortcut/exe image path, packaged AUMID and the
+// process tree the launch started (launcher stubs that start the real UI from the same
+// install folder). Never names, titles or the launcher PID alone.
 internal static class WindowsAppForeground
 {
     internal sealed record Target(string? ImagePath, string? AppUserModelId);
 
+    internal sealed record Window(IntPtr Handle, uint ProcessId, bool Visible, bool Minimized, bool Cloaked,
+        bool Owned, long ExStyle, bool HasArea, uint HostedProcessId = 0, string? AppUserModelId = null);
+
+    internal sealed record ProcessEntry(uint Id, uint ParentId);
+
+    internal sealed record ProcessIdentity(string? Image, string? AppUserModelId, long CreatedUtc);
+
     internal interface IWindows
     {
-        IntPtr Find(Target target);
-        bool Activate(IntPtr window);
+        /// <summary>Top-level windows in z-order (most recently active first).</summary>
+        IReadOnlyList<Window> Snapshot(bool readAppIds);
+        IReadOnlyList<ProcessEntry> Processes();
+        ProcessIdentity Identity(uint processId);
+        IntPtr Foreground();
+        bool SetForeground(IntPtr window, bool attachInput, out string detail);
+        bool Show(IntPtr window, int command);
+        long ElapsedMs { get; }
+        long UtcNow { get; }
+        void Delay(int ms);
     }
+
+    internal const int SW_SHOW = 5, SW_SHOWMINNOACTIVE = 7;
+    internal const int SW_RESTORE = 9;
+    internal const long WS_EX_TOOLWINDOW = 0x80, WS_EX_APPWINDOW = 0x40000, WS_EX_NOACTIVATE = 0x08000000;
+
+    private static int _generation;
 
     internal static Target? ResolveTarget(string path, string? arguments, AppActivator.ResolvedShortcut? shortcut)
     {
@@ -52,154 +85,378 @@ internal static class WindowsAppForeground
             : target.ImagePath is { Length: > 0 } image &&
               string.Equals(image, imagePath, StringComparison.OrdinalIgnoreCase);
 
-    internal static void Restore(Target? target)
+    /// <summary>Alt+Tab rules: visible, on this desktop, activatable, unowned (or app window), not empty.</summary>
+    internal static bool IsUserFacing(Window w) =>
+        w.Visible && !w.Cloaked && (w.ExStyle & WS_EX_NOACTIVATE) == 0 &&
+        ((w.ExStyle & WS_EX_APPWINDOW) != 0 || ((w.ExStyle & WS_EX_TOOLWINDOW) == 0 && !w.Owned)) &&
+        (w.Minimized || w.HasArea);
+
+    /// <summary>Folder whose executables belong to the same app; null for shared system folders.</summary>
+    internal static string? InstallRoot(string imagePath)
     {
-        if (target == null || !OperatingSystem.IsWindows()) return;
-        var timer = Stopwatch.StartNew();
+        var dir = Path.GetDirectoryName(imagePath);
+        if (string.IsNullOrEmpty(dir)) return null;
+        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        if (windows.Length > 0 && IsUnder(dir, windows)) return null;
+        return dir;
+    }
+
+    internal static bool IsUnder(string path, string root)
+    {
+        var r = root.TrimEnd('\\', '/');
+        if (string.Equals(path.TrimEnd('\\', '/'), r, StringComparison.OrdinalIgnoreCase)) return true;
+        return path.Length > r.Length && path[r.Length] is '\\' or '/' &&
+               path.StartsWith(r, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Snapshot before launching so windows created by the launch are recognised.</summary>
+    internal static Pending? Begin(Target? target)
+    {
+        if (target == null || !OperatingSystem.IsWindows()) return null;
         try
         {
-            var activated = Restore(target, new NativeWindows(), Thread.Sleep);
-            Log.Debug("AppActivator: window foreground {Activated} in {ElapsedMs} ms", activated, timer.ElapsedMilliseconds);
+            var generation = Interlocked.Increment(ref _generation);
+            var session = new Session(target, new NativeWindows())
+            {
+                Superseded = () => Volatile.Read(ref _generation) != generation,
+            };
+            return new Pending(session);
         }
         catch (Exception ex)
         {
-            // Launch has already succeeded; inaccessible windows must not undo it.
-            Log.Debug(ex, "AppActivator: window activation unavailable");
+            Log.Debug(ex, "AppActivator: window snapshot unavailable");
+            return null;
         }
     }
 
-    internal static bool Restore(Target target, IWindows windows, Action<int> delay, Func<long>? elapsedMilliseconds = null)
+    internal sealed class Pending
     {
-        // Immediate warm-app attempt; four-second deadline for cold Store/Electron windows.
-        // No watcher survives the launch and a confirmed foreground window stops retries.
-        var timer = Stopwatch.StartNew();
-        elapsedMilliseconds ??= () => timer.ElapsedMilliseconds;
-        for (var attempt = 0; attempt <= 80; attempt++)
-        {
-            if (attempt > 0 && elapsedMilliseconds() >= 4000) return false;
-            var window = windows.Find(target);
-            if (window != IntPtr.Zero && windows.Activate(window)) return true;
-            var remaining = 4000 - elapsedMilliseconds();
-            if (remaining <= 0) return false;
-            if (attempt < 80) delay((int)Math.Min(50, remaining));
-        }
-        return false;
-    }
+        private readonly Session _session;
+        internal Pending(Session session) => _session = session;
 
-    private sealed class NativeWindows : IWindows
-    {
-        public IntPtr Find(Target target)
+        /// <summary>Hands off to a background thread; the launch itself returns immediately.</summary>
+        public void Start(uint launchedProcessId)
         {
-            var identities = new Dictionary<uint, (string? Image, string? Aumid)>();
-            bool ProcessMatches(IntPtr window)
+            _session.Launched(launchedProcessId);
+            var thread = new Thread(() =>
             {
-                GetWindowThreadProcessId(window, out var pid);
-                if (!identities.TryGetValue(pid, out var identity))
-                {
-                    identity = ReadProcessIdentity(pid, target.AppUserModelId != null);
-                    identities[pid] = identity;
-                }
-                return Matches(target, identity.Image, identity.Aumid);
-            }
+                try { _session.Run(); }
+                // Launch has already succeeded; inaccessible windows must not undo it.
+                catch (Exception ex) { Log.Debug(ex, "AppActivator: window activation unavailable"); }
+            }) { IsBackground = true, Name = "AppForeground" };
+            thread.Start();
+        }
+    }
 
-            var found = IntPtr.Zero;
-            var hidden = IntPtr.Zero;
+    internal sealed record Result(string Outcome, IntPtr Window, uint ProcessId, long ElapsedMs, string Steps);
+
+    internal sealed class Session
+    {
+        internal const int FirstWindowMs = 12000, SettleMs = 1500, CycleAfterMs = 250, RetryMs = 250,
+            ExitedLaunchMs = 4000, NewWindowGraceMs = 300;
+
+        private sealed class Progress
+        {
+            public long FirstSeen, LastTry = long.MinValue / 2;
+            public bool Shown, Cycled, Undone;
+        }
+
+        private readonly Target _target;
+        private readonly IWindows _os;
+        private readonly HashSet<IntPtr> _before;
+        private readonly IntPtr _originalForeground;
+        private readonly long _startedUtc;
+        private readonly long _startMs;
+        private readonly string? _installRoot;
+        private readonly HashSet<uint> _family = new();
+        private readonly HashSet<string> _images = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<IntPtr, Progress> _progress = new();
+        private readonly List<string> _steps = new();
+        public Func<bool> Superseded { get; init; } = () => false;
+
+        internal Session(Target target, IWindows os)
+        {
+            _target = target;
+            _os = os;
+            _before = os.Snapshot(false).Select(w => w.Handle).ToHashSet();
+            _originalForeground = os.Foreground();
+            _startedUtc = os.UtcNow;
+            _startMs = os.ElapsedMs;
+            if (target.ImagePath is { Length: > 0 } image)
+            {
+                _images.Add(image);
+                _installRoot = InstallRoot(image);
+            }
+        }
+
+        internal void Launched(uint processId)
+        {
+            if (processId != 0) _family.Add(processId);
+        }
+
+        internal Result Run()
+        {
+            long verifiedAt = -1;
+            while (true)
+            {
+                var elapsed = _os.ElapsedMs - _startMs;
+                if (Superseded()) return Finish("superseded", null, elapsed);
+
+                var processes = _os.Processes();
+                UpdateFamily(processes);
+                var windows = _os.Snapshot(_target.AppUserModelId != null);
+                var foreground = _os.Foreground();
+                var fgWindow = windows.FirstOrDefault(w => w.Handle == foreground);
+                var candidates = windows.Where(w => IsUserFacing(w) && IsTarget(w)).ToList();
+                UndoHiddenCycles(windows);
+
+                if (fgWindow != null && IsTarget(fgWindow))
+                {
+                    if (fgWindow.Visible && !fgWindow.Minimized && !fgWindow.Cloaked)
+                    {
+                        if (verifiedAt < 0) { verifiedAt = elapsed; _steps.Add($"foreground@{elapsed}"); }
+                        // An older window got focus but the launch opened a new one (single-instance
+                        // hand-off); if the app leaves the new window behind, raise it.
+                        var newer = !_before.Contains(foreground) ? null : candidates.FirstOrDefault(w =>
+                            !_before.Contains(w.Handle) && !w.Minimized &&
+                            elapsed - Seen(w, elapsed).FirstSeen >= NewWindowGraceMs && !Seen(w, elapsed).Cycled);
+                        if (newer != null) Advance(newer, elapsed, true);
+                        else if (elapsed - verifiedAt >= SettleMs) return Finish("foreground", fgWindow, elapsed);
+                    }
+                    // Otherwise a transient window of the app holds focus (e.g. single-instance hand-off).
+                    if (elapsed >= FirstWindowMs) return Finish(verifiedAt >= 0 ? "foreground" : "transient", fgWindow, elapsed);
+                    Wait(elapsed);
+                    continue;
+                }
+
+                // No foreground window happens for a moment while apps swap windows.
+                if (foreground == IntPtr.Zero && verifiedAt >= 0 && elapsed < FirstWindowMs) { Wait(elapsed); continue; }
+                if (verifiedAt >= 0) return Finish("lost", fgWindow, elapsed); // never fight a later switch
+                if (foreground != IntPtr.Zero && foreground != _originalForeground)
+                    return Finish("user-switched", null, elapsed);
+
+                var pick = candidates.FirstOrDefault(w => !_before.Contains(w.Handle)) ?? candidates.FirstOrDefault();
+                if (pick != null) Advance(pick, elapsed, false);
+                else if (elapsed >= FirstWindowMs ||
+                         (elapsed >= ExitedLaunchMs && !processes.Any(p => _family.Contains(p.Id))))
+                    return Finish("no-visible-window", null, elapsed);
+
+                if (elapsed >= FirstWindowMs) return Finish("refused", pick, elapsed);
+                Wait(elapsed);
+            }
+        }
+
+        private void Wait(long elapsed) => _os.Delay(elapsed < 2000 ? 50 : 100);
+
+        private Progress Seen(Window w, long elapsed)
+        {
+            if (!_progress.TryGetValue(w.Handle, out var p)) _progress[w.Handle] = p = new Progress { FirstSeen = elapsed };
+            return p;
+        }
+
+        private void Advance(Window w, long elapsed, bool cycleOnly)
+        {
+            var p = Seen(w, elapsed);
+            if (w.Minimized)
+            {
+                // Restoring a minimized window is honored even for a background caller.
+                if (!p.Cycled) { p.Cycled = true; _steps.Add(Shown(_os.Show(w.Handle, SW_RESTORE), "restore", elapsed)); }
+                return;
+            }
+            if (!cycleOnly && elapsed - p.LastTry >= RetryMs)
+            {
+                p.LastTry = elapsed;
+                if (_os.SetForeground(w.Handle, false, out var direct)) { _steps.Add($"set@{elapsed}"); return; }
+                if (_os.SetForeground(w.Handle, true, out var attached)) { _steps.Add($"attach@{elapsed}"); return; }
+                if (!_steps.Any(s => s.StartsWith("refused", StringComparison.Ordinal)))
+                    _steps.Add($"refused@{elapsed}({direct};{attached})");
+                // SW_SHOW asks the window's own thread to activate it, without changing its size.
+                if (!p.Shown) { p.Shown = true; _steps.Add(Shown(_os.Show(w.Handle, SW_SHOW), "show", elapsed)); }
+            }
+            if (!p.Cycled && (cycleOnly || elapsed - p.FirstSeen >= CycleAfterMs))
+            {
+                // No activation on minimize, so nothing else changes; the restore keeps maximized state.
+                var minimized = _os.Show(w.Handle, SW_SHOWMINNOACTIVE);
+                var restored = minimized && _os.Show(w.Handle, SW_RESTORE);
+                p.Cycled = true;
+                _steps.Add(Shown(restored, "cycle", elapsed));
+            }
+        }
+
+        // ShowWindowAsync fails for windows Windows protects from DeckOS (e.g. elevated apps).
+        private static string Shown(bool accepted, string step, long elapsed) =>
+            accepted ? $"{step}@{elapsed}" : $"{step}-denied@{elapsed}";
+
+        // An app that hides itself when minimized (to tray) gets the window it had back.
+        private void UndoHiddenCycles(IReadOnlyList<Window> windows)
+        {
+            foreach (var w in windows)
+            {
+                if (!w.Visible && _progress.TryGetValue(w.Handle, out var p) && p.Cycled && !p.Undone)
+                {
+                    _os.Show(w.Handle, SW_RESTORE);
+                    p.Undone = true;
+                    _steps.Add("unhide");
+                }
+            }
+        }
+
+        private void UpdateFamily(IReadOnlyList<ProcessEntry> processes)
+        {
+            if (_family.Count == 0) return;
+            bool added;
+            do
+            {
+                added = false;
+                foreach (var p in processes)
+                {
+                    if (_family.Contains(p.Id) || !_family.Contains(p.ParentId)) continue;
+                    var identity = _os.Identity(p.Id);
+                    // Parent PIDs are recycled: only processes started after this launch are its children.
+                    if (identity.CreatedUtc < _startedUtc) continue;
+                    _family.Add(p.Id);
+                    added = true;
+                    if (identity.Image != null && _installRoot != null && IsUnder(identity.Image, _installRoot) &&
+                        _images.Add(identity.Image))
+                        _steps.Add("child-image");
+                }
+            } while (added);
+        }
+
+        private bool IsTarget(Window w) =>
+            IsTargetProcess(w.ProcessId) ||
+            (w.HostedProcessId != 0 && IsTargetProcess(w.HostedProcessId)) ||
+            (_target.AppUserModelId != null &&
+             string.Equals(_target.AppUserModelId, w.AppUserModelId, StringComparison.OrdinalIgnoreCase));
+
+        private bool IsTargetProcess(uint processId)
+        {
+            if (_family.Contains(processId)) return true;
+            var identity = _os.Identity(processId);
+            if (_target.AppUserModelId != null)
+                return string.Equals(_target.AppUserModelId, identity.AppUserModelId, StringComparison.OrdinalIgnoreCase);
+            return identity.Image != null && _images.Contains(identity.Image);
+        }
+
+        private Result Finish(string outcome, Window? w, long elapsed)
+        {
+            var result = new Result(outcome, w?.Handle ?? IntPtr.Zero, w?.ProcessId ?? 0, elapsed, string.Join(",", _steps));
+            Log.Info("AppActivator: foreground {Outcome} hwnd {Window} pid {Pid} in {ElapsedMs} ms [{Steps}]",
+                result.Outcome, result.Window, result.ProcessId, result.ElapsedMs, result.Steps);
+            return result;
+        }
+    }
+
+    internal sealed class NativeWindows : IWindows
+    {
+        private readonly Dictionary<uint, ProcessIdentity> _identities = new();
+        private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+
+        public long ElapsedMs => _clock.ElapsedMilliseconds;
+        public long UtcNow => DateTime.UtcNow.ToFileTimeUtc();
+        public void Delay(int ms) => Thread.Sleep(ms);
+        public IntPtr Foreground() => GetForegroundWindow();
+        public bool Show(IntPtr window, int command) => ShowWindowAsync(window, command);
+
+        public IReadOnlyList<Window> Snapshot(bool readAppIds)
+        {
+            var list = new List<Window>();
             EnumWindows((window, _) =>
             {
-                var style = GetWindowLongPtr(window, -20).ToInt64();
-                if ((style & (0x80L /* TOOLWINDOW */ | 0x08000000L /* NOACTIVATE */)) != 0) return true;
-                if (DwmGetWindowAttribute(window, 14 /* CLOAKED */, out var cloaked, sizeof(int)) == 0 && cloaked != 0)
-                    return true;
-
+                GetWindowThreadProcessId(window, out var pid);
                 var visible = IsWindowVisible(window);
-                if (!visible && (GetWindowTextLength(window) == 0 ||
-                    (GetWindowLongPtr(window, -16).ToInt64() & 0x00C00000L /* CAPTION */) == 0)) return true;
-
-                var match = ProcessMatches(window);
-                if (!match && target.AppUserModelId != null)
+                var cloaked = DwmGetWindowAttribute(window, 14 /* CLOAKED */, out var c, sizeof(int)) == 0 && c != 0;
+                GetWindowRect(window, out var rect);
+                uint hosted = 0;
+                string? appId = null;
+                if (readAppIds && visible)
                 {
-                    match = string.Equals(target.AppUserModelId, ReadWindowAppId(window), StringComparison.OrdinalIgnoreCase);
-                    // Older UWP windows belong to ApplicationFrameHost. Their content child
-                    // belongs to the app; never match the shared host's image or PID.
-                    var className = new StringBuilder(256);
+                    appId = ReadWindowAppId(window);
+                    // Older UWP windows belong to ApplicationFrameHost; their content child belongs to the app.
+                    var className = new StringBuilder(64);
                     GetClassName(window, className, className.Capacity);
-                    if (!match && className.ToString() == "ApplicationFrameWindow")
+                    if (className.ToString() == "ApplicationFrameWindow")
                     {
                         EnumChildWindows(window, (child, _) =>
                         {
-                            match = ProcessMatches(child);
-                            return !match;
+                            GetWindowThreadProcessId(child, out var childPid);
+                            if (childPid != pid) hosted = childPid;
+                            return hosted == 0;
                         }, IntPtr.Zero);
                     }
                 }
-                if (!match) return true;
-                if (!visible) { if (hidden == IntPtr.Zero) hidden = window; return true; }
-                found = window;
-                return false;
+                list.Add(new Window(window, pid, visible, IsIconic(window), cloaked,
+                    GetWindow(window, 4 /* GW_OWNER */) != IntPtr.Zero, GetWindowLongPtr(window, -20).ToInt64(),
+                    rect.Right > rect.Left && rect.Bottom > rect.Top, hosted, appId));
+                return true;
             }, IntPtr.Zero);
-            return found != IntPtr.Zero ? found : hidden;
+            return list;
         }
 
-        public bool Activate(IntPtr window)
+        public IReadOnlyList<ProcessEntry> Processes()
         {
-            if (!IsWindow(window)) return false;
-            if (IsIconic(window))
-            {
-                Log.Debug("AppActivator: restoring minimized HWND {Window}", window);
-                ShowWindowAsync(window, 9 /* RESTORE */);
-            }
-            else if (!IsWindowVisible(window)) ShowWindowAsync(window, 5 /* SHOW */);
-
-            SetForegroundWindow(window);
-            if (IsForeground(window)) return true;
-
-            // A remote deck tap does not make this worker the foreground input thread.
-            // Briefly join the normal foreground queue, then always detach. Windows still
-            // enforces desktop/integrity boundaries. No synthetic keys or lock changes.
-            var currentThread = GetCurrentThreadId();
-            var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
-            PeekMessage(out _, IntPtr.Zero, 0, 0, 0); // Ensure this worker has an input queue.
-            var attached = foregroundThread != 0 && foregroundThread != currentThread &&
-                AttachThreadInput(currentThread, foregroundThread, true);
+            var list = new List<ProcessEntry>();
+            var snapshot = CreateToolhelp32Snapshot(2 /* PROCESS */, 0);
+            if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1)) return list;
             try
             {
-                if (attached) SetForegroundWindow(window);
-                return IsForeground(window);
+                var entry = new ProcessEntry32 { Size = (uint)Marshal.SizeOf<ProcessEntry32>() };
+                for (var ok = Process32First(snapshot, ref entry); ok; ok = Process32Next(snapshot, ref entry))
+                    list.Add(new ProcessEntry(entry.ProcessId, entry.ParentProcessId));
             }
-            finally
-            {
-                if (attached) AttachThreadInput(currentThread, foregroundThread, false);
-            }
+            finally { CloseHandle(snapshot); }
+            return list;
         }
 
-        private static bool IsForeground(IntPtr window)
+        public ProcessIdentity Identity(uint processId)
         {
-            if (GetForegroundWindow() != window || !IsWindowVisible(window) || IsIconic(window)) return false;
-            GetWindowThreadProcessId(window, out var pid);
-            Log.Debug("AppActivator: verified visible foreground HWND {Window} PID {Pid} (not minimized)", window, pid);
-            return true;
-        }
-    }
-
-    private static (string? Image, string? Aumid) ReadProcessIdentity(uint pid, bool readAumid)
-    {
-        var process = OpenProcess(0x1000 /* QUERY_LIMITED_INFORMATION */, false, pid);
-        if (process == IntPtr.Zero) return (null, null);
-        try
-        {
-            var buffer = new StringBuilder(32768);
-            var size = buffer.Capacity;
-            var image = QueryFullProcessImageName(process, 0, buffer, ref size) ? buffer.ToString() : null;
-            string? aumid = null;
-            if (readAumid)
+            if (_identities.TryGetValue(processId, out var cached)) return cached;
+            var identity = new ProcessIdentity(null, null, long.MinValue);
+            var process = OpenProcess(0x1000 /* QUERY_LIMITED_INFORMATION */, false, processId);
+            if (process != IntPtr.Zero)
             {
-                uint length = 512;
-                var appId = new StringBuilder((int)length);
-                if (GetApplicationUserModelId(process, ref length, appId) == 0) aumid = appId.ToString();
+                try
+                {
+                    var buffer = new StringBuilder(32768);
+                    var size = buffer.Capacity;
+                    var image = QueryFullProcessImageName(process, 0, buffer, ref size) ? buffer.ToString() : null;
+                    uint length = 512;
+                    var appId = new StringBuilder((int)length);
+                    var aumid = GetApplicationUserModelId(process, ref length, appId) == 0 ? appId.ToString() : null;
+                    var created = GetProcessTimes(process, out var c, out _, out _, out _) ? c : long.MinValue;
+                    identity = new ProcessIdentity(image, aumid, created);
+                }
+                finally { CloseHandle(process); }
             }
-            return (image, aumid);
+            return _identities[processId] = identity;
         }
-        finally { CloseHandle(process); }
+
+        public bool SetForeground(IntPtr window, bool attachInput, out string detail)
+        {
+            // A disabled main window has a modal dialog; Alt+Tab activates that popup instead.
+            var popup = GetLastActivePopup(window);
+            if (popup != IntPtr.Zero && popup != window && IsWindowVisible(popup) && IsWindowEnabled(popup)) window = popup;
+            if (!attachInput)
+            {
+                var ok = SetForegroundWindow(window);
+                detail = ok ? "set" : "set-denied";
+                return GetForegroundWindow() == window;
+            }
+
+            // Joining the foreground input queue is the documented-adjacent way a background thread
+            // shares activation state. Windows may still refuse it; always detach.
+            var currentThread = GetCurrentThreadId();
+            var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+            PeekMessage(out _, IntPtr.Zero, 0, 0, 0); // Ensure this thread has an input queue.
+            var attached = foregroundThread != 0 && foregroundThread != currentThread &&
+                AttachThreadInput(currentThread, foregroundThread, true);
+            var error = attached ? 0 : Marshal.GetLastWin32Error();
+            bool set;
+            try { set = SetForegroundWindow(window); }
+            finally { if (attached) AttachThreadInput(currentThread, foregroundThread, false); }
+            detail = $"attach-{(attached ? "ok" : "err" + error)}-{(set ? "set" : "denied")}";
+            return GetForegroundWindow() == window;
+        }
     }
 
     private static string? ReadWindowAppId(IntPtr window)
@@ -245,24 +502,42 @@ internal static class WindowsAppForeground
         public int X, Y;
         public uint Private;
     }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ProcessEntry32
+    {
+        public uint Size, Usage, ProcessId;
+        public IntPtr DefaultHeapId;
+        public uint ModuleId, Threads, ParentProcessId;
+        public int PriorityClassBase;
+        public uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string ExeFile;
+    }
     [DllImport("user32.dll")] private static extern bool PeekMessage(out Message message, IntPtr window, uint min, uint max, uint remove);
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowProc callback, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowProc callback, IntPtr parameter);
-    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern IntPtr GetLastActivePopup(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
-    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint thread, uint other, bool attach);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowTextLength(IntPtr window);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool AttachThreadInput(uint thread, uint other, bool attach);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int count);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll")] private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
+    [DllImport("kernel32.dll")] private static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint processId);
+    [DllImport("kernel32.dll", EntryPoint = "Process32FirstW", CharSet = CharSet.Unicode)] private static extern bool Process32First(IntPtr snapshot, ref ProcessEntry32 entry);
+    [DllImport("kernel32.dll", EntryPoint = "Process32NextW", CharSet = CharSet.Unicode)] private static extern bool Process32Next(IntPtr snapshot, ref ProcessEntry32 entry);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder image, ref int size);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern int GetApplicationUserModelId(IntPtr process, ref uint length, StringBuilder appId);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern uint SearchPath(string? path, string file, string? extension, int size, StringBuilder result, IntPtr lastPart);
