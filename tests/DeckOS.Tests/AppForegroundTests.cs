@@ -113,6 +113,7 @@ public class AppForegroundTests
         public IntPtr Fg = Active;
         public bool ForegroundLock = true;
         public bool JoinBlocked; // target thread can't join the foreground queue (UIPI, hung)
+        public int RefuseJoins;  // the next N joins are refused, then allowed (momentary refusal)
         public int RaiseLatencyMs; // SWP_ASYNCWINDOWPOS: the app's thread applies the raise later
         public long Ms, Utc = 1000;
 
@@ -144,7 +145,7 @@ public class AppForegroundTests
         public bool SetForeground(IntPtr window, bool attachInput, out string detail)
         {
             Calls.Add($"{(attachInput ? "attach" : "set")}:{window}");
-            var allowed = attachInput ? !JoinBlocked && !Protected.Contains(window) : !ForegroundLock;
+            var allowed = attachInput ? !JoinBlocked && !Protected.Contains(window) && RefuseJoins-- <= 0 : !ForegroundLock;
             detail = allowed ? "set" : "denied";
             if (allowed) Activate(Z.Single(w => w.Handle == window));
             return Fg == window;
@@ -217,7 +218,8 @@ public class AppForegroundTests
         Assert.Equal("raised", result.Outcome);
         Assert.Equal(new IntPtr(10), d.Top);
         Assert.Equal(Active, d.Fg);
-        Assert.Equal(new[] { "set:10", "attach:10", "raise:10" }, d.Calls);
+        Assert.Equal(new[] { "set:10", "attach:10", "raise:10" }, d.Calls.Take(3));
+        Assert.Single(d.Calls, "raise:10");
         Assert.Contains("refused@0(denied;denied),raise@0", result.Steps);
     }
     [Fact]
@@ -229,6 +231,28 @@ public class AppForegroundTests
         Assert.Equal("foreground", result.Outcome);
         Assert.Equal(new IntPtr(10), d.Fg);
         Assert.Equal(new[] { "set:10" }, d.Calls);
+    }
+
+    [Fact]
+    public void MomentaryRefusal_IsRetriedWhileTheWindowIsStackedInFront()
+    {
+        var d = new Desktop { RefuseJoins = 1 };
+        d.Add(new IntPtr(10), 5, App);
+        var result = Run(d, new(App, null));
+        Assert.Equal("foreground", result.Outcome);
+        Assert.Equal(new IntPtr(10), d.Fg);
+        Assert.Equal(new[] { "set:10", "attach:10", "raise:10", "set:10", "attach:10" }, d.Calls);
+    }
+
+    [Fact]
+    public void PersistentRefusal_StopsAfterThreeActivationAttempts()
+    {
+        var d = new Desktop { JoinBlocked = true };
+        d.Add(new IntPtr(10), 5, App);
+        var result = Run(d, new(App, null));
+        Assert.Equal("raised", result.Outcome);
+        Assert.Equal(W.Session.MaxActivations, d.Calls.Count(c => c == "attach:10"));
+        Assert.Single(d.Calls, "raise:10");
     }
 
     [Fact]
@@ -251,7 +275,8 @@ public class AppForegroundTests
         d.Add(new IntPtr(10), 5, App).Min = true;
         var result = Run(d, new(App, null));
         Assert.Equal("raised", result.Outcome);
-        Assert.Equal(new[] { "set:10", "attach:10", "show9:10", "set:10", "attach:10", "raise:10" }, d.Calls);
+        Assert.Equal(new[] { "set:10", "attach:10", "show9:10", "set:10", "attach:10", "raise:10" }, d.Calls.Take(6));
+        Assert.Single(d.Calls, "raise:10");
         Assert.Equal(new IntPtr(10), d.Top);
     }
     [Fact]
@@ -483,6 +508,7 @@ public class AppForegroundTests
 
         Assert.Equal("user-switched", result.Outcome);
         Assert.Empty(d.Calls);
+        Assert.Contains("switched-to:Browser.exe:2", result.Steps);
         Assert.Equal(new IntPtr(80), d.Fg);
     }
 

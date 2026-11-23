@@ -159,13 +159,13 @@ internal static class WindowsAppForeground
     {
         internal const int FirstWindowMs = 12000, SettleMs = 1500, RetryMs = 250,
             ExitedLaunchMs = 4000, NewWindowGraceMs = 300, LayoutMs = 2000, MaxRaises = 3,
-            RaiseVerifyMs = 300;
+            RaiseVerifyMs = 300, MaxActivations = 3;
 
         private sealed class Progress
         {
             public long FirstSeen, LastTry = long.MinValue / 2, RaisedAt = -1, BoundsSince;
             public (int, int, int, int) LastBounds, RaisedBounds;
-            public int Raises;
+            public int Raises, Activations;
             public bool Restored;
         }
 
@@ -241,7 +241,12 @@ internal static class WindowsAppForeground
                 if (foreground == IntPtr.Zero && verifiedAt >= 0 && elapsed < FirstWindowMs) { Wait(elapsed); continue; }
                 if (verifiedAt >= 0) return Finish("lost", fgWindow, elapsed); // never fight a later switch
                 if (foreground != IntPtr.Zero && foreground != _originalForeground)
+                {
+                    // Recorded so a launcher, updater or consent window misread as a user switch shows up.
+                    var other = fgWindow?.ProcessId ?? 0;
+                    _steps.Add($"switched-to:{Path.GetFileName(_os.Identity(other).Image ?? "?")}:{other}");
                     return Finish(raised != null ? "raised" : "user-switched", raised, elapsed);
+                }
 
                 var pick = candidates.FirstOrDefault(w => !_before.Contains(w.Handle)) ?? candidates.FirstOrDefault();
                 var progress = pick == null ? null : Seen(pick, elapsed);
@@ -265,6 +270,9 @@ internal static class WindowsAppForeground
                     }
                     else if (!above || elapsed - progress.RaisedAt >= SettleMs)
                         return Finish(above ? "raised" : "behind", pick, elapsed);
+                    // Refusal can be momentary (e.g. mid-keystroke): retry activation while still in front.
+                    else if (progress.Activations < MaxActivations && elapsed - progress.LastTry >= RetryMs)
+                        TryActivate(pick, progress, elapsed);
                 }
                 else if (progress != null && !_before.Contains(pick!.Handle) &&
                          elapsed - progress.BoundsSince < NewWindowGraceMs && elapsed - progress.FirstSeen < LayoutMs)
@@ -314,14 +322,21 @@ internal static class WindowsAppForeground
                 return;
             }
             if (elapsed - p.LastTry < RetryMs) return;
-            p.LastTry = elapsed;
-            if (_os.SetForeground(w.Handle, false, out var direct)) { _steps.Add($"set@{elapsed}"); return; }
-            if (_os.SetForeground(w.Handle, true, out var attached)) { _steps.Add($"attach@{elapsed}"); return; }
-            _steps.Add($"refused@{elapsed}({direct};{attached})");
+            if (TryActivate(w, p, elapsed)) return;
             p.RaisedAt = elapsed;
             p.RaisedBounds = w.Bounds;
             p.Raises++;
             _steps.Add(IsAbove(windows, w.Handle, foreground) ? $"above@{elapsed}" : Step(_os.Raise(w.Handle), "raise", elapsed));
+        }
+
+        private bool TryActivate(Window w, Progress p, long elapsed)
+        {
+            p.LastTry = elapsed;
+            p.Activations++;
+            if (_os.SetForeground(w.Handle, false, out var direct)) { _steps.Add($"set@{elapsed}"); return true; }
+            if (_os.SetForeground(w.Handle, true, out var attached)) { _steps.Add($"attach@{elapsed}"); return true; }
+            _steps.Add($"refused@{elapsed}({direct};{attached})");
+            return false;
         }
 
         // Windows rejects these for windows protected from DeckOS (e.g. elevated apps, UIPI).
@@ -479,6 +494,7 @@ internal static class WindowsAppForeground
             // Join the TARGET window's thread to the foreground thread's input queue: activation is
             // then a switch inside the active input context, which Windows allows (measured; Firefox
             // does the same from its own thread). Joining DeckOS's own thread instead is refused.
+            // Same argument order as PowerToys WindowHelpers.BringToForeground (MIT), without its SendInput.
             // While joined the two apps share input and keyboard state, so both must be responsive
             // right now, nothing else runs while joined, and the join is always undone at once.
             // Windows still blocks it across integrity levels (UIPI) and desktops.
