@@ -114,6 +114,7 @@ public class AppForegroundTests
         public bool ForegroundLock = true;
         public bool JoinBlocked; // target thread can't join the foreground queue (UIPI, hung)
         public int RefuseJoins;  // the next N joins are refused, then allowed (momentary refusal)
+        public int JoinLandsAfterMs = -1; // join returns TRUE but the switch lands later (never: int.MaxValue)
         public int RaiseLatencyMs; // SWP_ASYNCWINDOWPOS: the app's thread applies the raise later
         public long Ms, Utc = 1000;
 
@@ -146,8 +147,14 @@ public class AppForegroundTests
         {
             Calls.Add($"{(attachInput ? "attach" : "set")}:{window}");
             var allowed = attachInput ? !JoinBlocked && !Protected.Contains(window) && RefuseJoins-- <= 0 : !ForegroundLock;
-            detail = allowed ? "set" : "denied";
-            if (allowed) Activate(Z.Single(w => w.Handle == window));
+            detail = allowed ? (attachInput ? "attach-ok-set" : "set") : "denied";
+            var target = Z.Single(x => x.Handle == window);
+            if (allowed && attachInput && JoinLandsAfterMs >= 0)
+            {
+                if (JoinLandsAfterMs != int.MaxValue) At(Ms + JoinLandsAfterMs, () => Activate(target));
+                return false;
+            }
+            if (allowed) Activate(target);
             return Fg == window;
         }
         public bool Show(IntPtr window, int command)
@@ -242,6 +249,40 @@ public class AppForegroundTests
         Assert.Equal("foreground", result.Outcome);
         Assert.Equal(new IntPtr(10), d.Fg);
         Assert.Equal(new[] { "set:10", "attach:10", "raise:10", "set:10", "attach:10" }, d.Calls);
+    }
+
+    [Fact]
+    public void ClaimedActivationLandingLater_IsConfirmedWithoutRaising()
+    {
+        // Spotify trace: join + SetForegroundWindow returned TRUE, the switch landed ~25 ms later.
+        var d = new Desktop { JoinLandsAfterMs = 25 };
+        d.Add(new IntPtr(10), 5, App);
+        var result = Run(d, new(App, null));
+        Assert.Equal("foreground", result.Outcome);
+        Assert.DoesNotContain("raise:10", d.Calls);
+        Assert.Contains("claimed@0", result.Steps);
+    }
+
+    [Fact]
+    public void ClaimedActivationThatNeverLands_FallsBackToRaiseAndBoundedRetries()
+    {
+        var d = new Desktop { JoinLandsAfterMs = int.MaxValue };
+        d.Add(new IntPtr(10), 5, App);
+        var result = Run(d, new(App, null));
+        Assert.Equal("raised", result.Outcome);
+        Assert.Contains("unconfirmed@", result.Steps);
+        Assert.Single(d.Calls, "raise:10");
+        Assert.Equal(W.Session.MaxActivations, d.Calls.Count(c => c == "attach:10"));
+    }
+
+    [Fact]
+    public void RaiseThatDoesNotTake_KeepsTryingActivationInsteadOfGivingUp()
+    {
+        var d = new Desktop { RefuseJoins = 2, RaiseLatencyMs = int.MaxValue / 2 };
+        d.Add(new IntPtr(10), 5, App);
+        var result = Run(d, new(App, null));
+        Assert.Equal("foreground", result.Outcome);
+        Assert.Equal(3, d.Calls.Count(c => c == "attach:10"));
     }
 
     [Fact]

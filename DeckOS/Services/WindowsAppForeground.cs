@@ -159,14 +159,14 @@ internal static class WindowsAppForeground
     {
         internal const int FirstWindowMs = 12000, SettleMs = 1500, RetryMs = 250,
             ExitedLaunchMs = 4000, NewWindowGraceMs = 300, LayoutMs = 2000, MaxRaises = 3,
-            RaiseVerifyMs = 300, MaxActivations = 3;
+            RaiseVerifyMs = 300, MaxActivations = 3, ClaimedMs = 150;
 
         private sealed class Progress
         {
-            public long FirstSeen, LastTry = long.MinValue / 2, RaisedAt = -1, BoundsSince;
+            public long FirstSeen, LastTry = long.MinValue / 2, RaisedAt = -1, BoundsSince, ClaimedUntil = -1;
             public (int, int, int, int) LastBounds, RaisedBounds;
             public int Raises, Activations;
-            public bool Restored;
+            public bool Restored, WasAbove;
         }
 
         private readonly Target _target;
@@ -260,19 +260,25 @@ internal static class WindowsAppForeground
                     // In front by normal stacking; give the app a moment to activate itself, then stop.
                     // The raise is asynchronous: the app's own thread applies it a moment later.
                     raised = pick;
-                    var above = IsAbove(windows, pick!.Handle, foreground) || elapsed - progress.RaisedAt < RaiseVerifyMs;
+                    var above = IsAbove(windows, pick!.Handle, foreground);
+                    if (above) progress.WasAbove = true;
+                    var settling = elapsed - progress.RaisedAt < RaiseVerifyMs || elapsed < progress.ClaimedUntil;
                     // A cold app still laying out moves and re-stacks its own window: stack it again.
-                    // A click on another window leaves ours untouched, so the user's choice is kept.
-                    if (!above && pick.Bounds != progress.RaisedBounds && progress.Raises < MaxRaises)
+                    if (!above && !settling && pick.Bounds != progress.RaisedBounds && progress.Raises < MaxRaises)
                     {
                         progress.RaisedAt = -1;
                         progress.LastTry = long.MinValue / 2;
                     }
-                    else if (!above || elapsed - progress.RaisedAt >= SettleMs)
-                        return Finish(above ? "raised" : "behind", pick, elapsed);
-                    // Refusal can be momentary (e.g. mid-keystroke): retry activation while still in front.
+                    // It was in front, then got covered with its geometry unchanged: the user's choice.
+                    else if (!above && progress.WasAbove)
+                        return Finish("behind", pick, elapsed);
+                    else if (settling) { }
+                    // Refusal can be momentary (e.g. mid-keystroke) and a raise may not take: retry
+                    // activation, bounded, until the window is up or the user switches.
                     else if (progress.Activations < MaxActivations && elapsed - progress.LastTry >= RetryMs)
                         TryActivate(pick, progress, elapsed);
+                    else if (elapsed - progress.RaisedAt >= SettleMs)
+                        return Finish(above ? "raised" : "behind", pick, elapsed);
                 }
                 else if (progress != null && !_before.Contains(pick!.Handle) &&
                          elapsed - progress.BoundsSince < NewWindowGraceMs && elapsed - progress.FirstSeen < LayoutMs)
@@ -321,8 +327,17 @@ internal static class WindowsAppForeground
                 _steps.Add(Step(_os.Show(w.Handle, SW_RESTORE), activated ? "activate+restore" : "restore", elapsed));
                 return;
             }
-            if (elapsed - p.LastTry < RetryMs) return;
-            if (TryActivate(w, p, elapsed)) return;
+            if (p.ClaimedUntil >= 0)
+            {
+                // Windows said yes; the switch lands a moment later or not at all.
+                if (elapsed < p.ClaimedUntil) return;
+                _steps.Add($"unconfirmed@{elapsed}");
+            }
+            else
+            {
+                if (elapsed - p.LastTry < RetryMs) return;
+                if (TryActivate(w, p, elapsed) || p.ClaimedUntil >= 0) return;
+            }
             p.RaisedAt = elapsed;
             p.RaisedBounds = w.Bounds;
             p.Raises++;
@@ -333,9 +348,14 @@ internal static class WindowsAppForeground
         {
             p.LastTry = elapsed;
             p.Activations++;
+            p.ClaimedUntil = -1;
             if (_os.SetForeground(w.Handle, false, out var direct)) { _steps.Add($"set@{elapsed}"); return true; }
             if (_os.SetForeground(w.Handle, true, out var attached)) { _steps.Add($"attach@{elapsed}"); return true; }
-            _steps.Add($"refused@{elapsed}({direct};{attached})");
+            // SetForegroundWindow returned TRUE but the switch is applied asynchronously (measured
+            // ~25 ms): confirm it against the real foreground window before falling back.
+            var claimed = direct == "set" || attached.EndsWith("-set", StringComparison.Ordinal);
+            if (claimed) p.ClaimedUntil = elapsed + ClaimedMs;
+            _steps.Add($"{(claimed ? "claimed" : "refused")}@{elapsed}({direct};{attached})");
             return false;
         }
 
