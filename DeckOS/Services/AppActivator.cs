@@ -23,7 +23,8 @@ namespace DeckOS.Services
             string? Arguments,
             string? WorkingDirectory,
             ProcessWindowStyle WindowStyle,
-            bool RequiresShellExecute);
+            bool RequiresShellExecute,
+            string? AppUserModelId = null);
 
         private sealed record CachedShortcut(string Key, DateTime LastWriteUtc, ResolvedShortcut? Resolved);
 
@@ -58,11 +59,15 @@ namespace DeckOS.Services
 
             if (OperatingSystem.IsWindows())
             {
+                var shortcut = path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)
+                    ? ResolveShortcutCached(path) : null;
+                var target = WindowsAppForeground.ResolveTarget(path, arguments, shortcut);
                 // 1) Store / MSIX / UWP (explorer.exe + shell:AppsFolder\<AUMID>):
                 // ativa direto via IApplicationActivationManager sem subir explorer.exe filho.
                 if (TryParseAppsFolderTarget(path, arguments, out var aumid, out var extraArgs) &&
                     TryActivateStoreApp(aumid, extraArgs))
                 {
+                    WindowsAppForeground.Restore(target);
                     sw.Stop();
                     Log.Debug("AppActivator: launch via store-com em {ElapsedMs} ms", sw.ElapsedMilliseconds);
                     return;
@@ -72,12 +77,19 @@ namespace DeckOS.Services
                 // pula o overhead de ShellExecuteEx/DDE usando CreateProcess direto, com
                 // fallback automatico para ShellExecute em caso de UAC ou erro.
                 if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) &&
-                    TryLaunchShortcutDirect(path, arguments))
+                    TryLaunchShortcutDirect(shortcut, arguments))
                 {
+                    WindowsAppForeground.Restore(target);
                     sw.Stop();
                     Log.Debug("AppActivator: launch via lnk-direct em {ElapsedMs} ms", sw.ElapsedMilliseconds);
                     return;
                 }
+
+                StartShellExecute(path, arguments);
+                WindowsAppForeground.Restore(target);
+                sw.Stop();
+                Log.Debug("AppActivator: launch via shell-execute em {ElapsedMs} ms", sw.ElapsedMilliseconds);
+                return;
             }
 
             StartShellExecute(path, arguments);
@@ -175,9 +187,8 @@ namespace DeckOS.Services
             }
         }
 
-        private bool TryLaunchShortcutDirect(string lnkPath, string? extraArguments)
+        private bool TryLaunchShortcutDirect(ResolvedShortcut? resolved, string? extraArguments)
         {
-            var resolved = ResolveShortcutCached(lnkPath);
             if (resolved == null || resolved.RequiresShellExecute) return false;
             if (!File.Exists(resolved.TargetPath)) return false;
 
@@ -314,7 +325,8 @@ namespace DeckOS.Services
                     args.Length > 0 ? args : null,
                     workDir.Length > 0 ? workDir : null,
                     style,
-                    requiresShell);
+                    requiresShell,
+                    WindowsAppForeground.ReadAppUserModelId(obj));
             }
             catch (Exception ex)
             {
