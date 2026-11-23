@@ -28,11 +28,13 @@ namespace DeckOS.Services;
 // install folder). Never names, titles or the launcher PID alone.
 internal static class WindowsAppForeground
 {
-    internal sealed record Target(string? ImagePath, string? AppUserModelId);
+    internal sealed record Target(string? ImagePath, string? AppUserModelId,
+        bool PreferNewWindow = false, bool MatchAnyNewWindow = false);
 
     internal sealed record Window(IntPtr Handle, uint ProcessId, bool Visible, bool Minimized, bool Cloaked,
         bool Owned, long ExStyle, bool HasArea, uint HostedProcessId = 0, string? AppUserModelId = null,
-        (int Left, int Top, int Right, int Bottom) Bounds = default);
+        (int Left, int Top, int Right, int Bottom) Bounds = default,
+        IntPtr OwnerHandle = default, bool IsShell = false);
 
     internal sealed record ProcessEntry(uint Id, uint ParentId);
 
@@ -69,10 +71,20 @@ internal static class WindowsAppForeground
                 return new(null, id);
             if (AppActivator.TryParseAppsFolderTarget(shortcut.TargetPath, shortcut.Arguments, out aumid, out _))
                 return new(null, aumid);
+            if (string.IsNullOrWhiteSpace(shortcut.TargetPath))
+            {
+                // PIDL-only shell shortcuts (e.g. File Explorer, Control Panel, Run) have no filesystem target path;
+                // Windows opens them in the shell host or spawns a new top-level window.
+                if (shortcut.HasIdList || shortcut.AppUserModelId is { Length: > 0 })
+                    return new(ShellHostPath(), null, PreferNewWindow: true, MatchAnyNewWindow: true);
+                return null;
+            }
             path = shortcut.TargetPath;
         }
 
         path = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+        if (Directory.Exists(path))
+            return new(ShellHostPath(), null, PreferNewWindow: true);
         if (!path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return null;
         if (!Path.IsPathFullyQualified(path) && OperatingSystem.IsWindows())
         {
@@ -81,7 +93,17 @@ internal static class WindowsAppForeground
             if (length == 0 || length >= buffer.Capacity) return null;
             path = buffer.ToString();
         }
-        return Path.IsPathFullyQualified(path) ? new(Path.GetFullPath(path), null) : null;
+        if (!Path.IsPathFullyQualified(path)) return null;
+        var full = Path.GetFullPath(path);
+        var isShellHost = ShellHostPath() is { Length: > 0 } shell &&
+                          string.Equals(full, shell, StringComparison.OrdinalIgnoreCase);
+        return new(full, null, PreferNewWindow: isShellHost);
+    }
+
+    internal static string? ShellHostPath()
+    {
+        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        return windows.Length > 0 ? Path.Combine(windows, "explorer.exe") : null;
     }
 
     internal static bool Matches(Target target, string? imagePath, string? aumid) =>
@@ -90,9 +112,9 @@ internal static class WindowsAppForeground
             : target.ImagePath is { Length: > 0 } image &&
               string.Equals(image, imagePath, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Alt+Tab rules: visible, on this desktop, activatable, unowned (or app window), not empty.</summary>
+    /// <summary>Alt+Tab rules: visible, on this desktop, not the desktop shell, activatable, unowned (or app window), not empty.</summary>
     internal static bool IsUserFacing(Window w) =>
-        w.Visible && !w.Cloaked && (w.ExStyle & WS_EX_NOACTIVATE) == 0 &&
+        w.Visible && !w.Cloaked && !w.IsShell && (w.ExStyle & WS_EX_NOACTIVATE) == 0 &&
         ((w.ExStyle & WS_EX_APPWINDOW) != 0 || ((w.ExStyle & WS_EX_TOOLWINDOW) == 0 && !w.Owned)) &&
         (w.Minimized || w.HasArea);
 
@@ -159,7 +181,7 @@ internal static class WindowsAppForeground
     {
         internal const int FirstWindowMs = 12000, SettleMs = 1500, RetryMs = 250,
             ExitedLaunchMs = 4000, NewWindowGraceMs = 300, LayoutMs = 2000, MaxRaises = 3,
-            RaiseVerifyMs = 300, MaxActivations = 3, ClaimedMs = 150;
+            RaiseVerifyMs = 300, MaxActivations = 3, ClaimedMs = 150, PreferNewWindowGraceMs = 1500;
 
         private sealed class Progress
         {
@@ -216,9 +238,9 @@ internal static class WindowsAppForeground
                 var windows = _os.Snapshot(_target.AppUserModelId != null);
                 var foreground = _os.Foreground();
                 var fgWindow = windows.FirstOrDefault(w => w.Handle == foreground);
-                var candidates = windows.Where(w => IsUserFacing(w) && IsTarget(w)).ToList();
+                var candidates = windows.Where(w => IsUserFacing(w) && IsTarget(w, windows)).ToList();
 
-                if (fgWindow != null && IsTarget(fgWindow))
+                if (fgWindow != null && IsTarget(fgWindow, windows))
                 {
                     if (fgWindow.Visible && !fgWindow.Minimized && !fgWindow.Cloaked)
                     {
@@ -248,7 +270,8 @@ internal static class WindowsAppForeground
                     return Finish(raised != null ? "raised" : "user-switched", raised, elapsed);
                 }
 
-                var pick = candidates.FirstOrDefault(w => !_before.Contains(w.Handle)) ?? candidates.FirstOrDefault();
+                var fresh = candidates.FirstOrDefault(w => !_before.Contains(w.Handle));
+                var pick = fresh ?? (_target.PreferNewWindow && elapsed < PreferNewWindowGraceMs ? null : candidates.FirstOrDefault());
                 var progress = pick == null ? null : Seen(pick, elapsed);
                 if (progress != null && pick!.Bounds != progress.LastBounds)
                 {
@@ -385,11 +408,20 @@ internal static class WindowsAppForeground
             } while (added);
         }
 
-        private bool IsTarget(Window w) =>
-            IsTargetProcess(w.ProcessId) ||
-            (w.HostedProcessId != 0 && IsTargetProcess(w.HostedProcessId)) ||
-            (_target.AppUserModelId != null &&
-             string.Equals(_target.AppUserModelId, w.AppUserModelId, StringComparison.OrdinalIgnoreCase));
+        private bool IsTarget(Window w, IReadOnlyList<Window> windows, int depth = 0)
+        {
+            if (IsTargetProcess(w.ProcessId)) return true;
+            if (w.HostedProcessId != 0 && IsTargetProcess(w.HostedProcessId)) return true;
+            if (_target.AppUserModelId != null &&
+                string.Equals(_target.AppUserModelId, w.AppUserModelId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (_target.MatchAnyNewWindow && !_before.Contains(w.Handle) && IsUserFacing(w)) return true;
+            if (w.OwnerHandle != IntPtr.Zero && depth < 4)
+            {
+                var owner = windows.FirstOrDefault(x => x.Handle == w.OwnerHandle);
+                if (owner != null && IsTarget(owner, windows, depth + 1)) return true;
+            }
+            return false;
+        }
 
         private bool IsTargetProcess(uint processId)
         {
@@ -426,6 +458,7 @@ internal static class WindowsAppForeground
         public IReadOnlyList<Window> Snapshot(bool readAppIds)
         {
             var list = new List<Window>();
+            var shell = GetShellWindow();
             EnumWindows((window, _) =>
             {
                 GetWindowThreadProcessId(window, out var pid);
@@ -450,9 +483,11 @@ internal static class WindowsAppForeground
                         }, IntPtr.Zero);
                     }
                 }
+                var owner = GetWindow(window, 4 /* GW_OWNER */);
                 list.Add(new Window(window, pid, visible, IsIconic(window), cloaked,
-                    GetWindow(window, 4 /* GW_OWNER */) != IntPtr.Zero, GetWindowLongPtr(window, -20).ToInt64(),
-                    rect.Right > rect.Left && rect.Bottom > rect.Top, hosted, appId, (rect.Left, rect.Top, rect.Right, rect.Bottom)));
+                    owner != IntPtr.Zero, GetWindowLongPtr(window, -20).ToInt64(),
+                    rect.Right > rect.Left && rect.Bottom > rect.Top, hosted, appId,
+                    (rect.Left, rect.Top, rect.Right, rect.Bottom), owner, window == shell));
                 return true;
             }, IntPtr.Zero);
             return list;
@@ -497,7 +532,14 @@ internal static class WindowsAppForeground
         }
 
         private static bool Responsive(IntPtr window) =>
+            !IsHungAppWindow(window) &&
             SendMessageTimeout(window, 0 /* WM_NULL */, IntPtr.Zero, IntPtr.Zero, 0x0002 /* ABORTIFHUNG */, 200, out _) != IntPtr.Zero;
+
+        private static bool IsForegroundOrOwned(IntPtr window)
+        {
+            var fg = GetForegroundWindow();
+            return fg == window || (fg != IntPtr.Zero && GetWindow(fg, 4 /* GW_OWNER */) == window);
+        }
 
         public bool SetForeground(IntPtr window, bool attachInput, out string detail)
         {
@@ -508,7 +550,7 @@ internal static class WindowsAppForeground
             {
                 var ok = SetForegroundWindow(window);
                 detail = ok ? "set" : "set-denied";
-                return GetForegroundWindow() == window;
+                return IsForegroundOrOwned(window);
             }
 
             // Join the TARGET window's thread to the foreground thread's input queue: activation is
@@ -537,7 +579,7 @@ internal static class WindowsAppForeground
             try { if (attached) set = SetForegroundWindow(window); }
             finally { if (attached) AttachThreadInput(targetThread, foregroundThread, false); }
             detail = $"attach-{(attached ? "ok" : "err" + error)}-{(set ? "set" : "denied")}";
-            return GetForegroundWindow() == window;
+            return IsForegroundOrOwned(window);
         }
     }
 
@@ -586,6 +628,8 @@ internal static class WindowsAppForeground
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string ExeFile;
     }
     [DllImport("user32.dll")] private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+    [DllImport("user32.dll")] private static extern bool IsHungAppWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr GetShellWindow();
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowProc callback, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowProc callback, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);

@@ -103,6 +103,7 @@ public class AppForegroundTests
         {
             public IntPtr Handle; public uint Pid; public bool Visible = true, Min, Owned; public long Ex = 0x100; public bool Area = true;
             public uint Hosted; public string? AppId; public (int, int, int, int) Bounds = (0, 0, 100, 100);
+            public IntPtr OwnerHandle; public bool IsShell;
         }
         public readonly List<Win> Z = new();
         public readonly Dictionary<uint, (string? Image, string? Aumid, long Created, uint Parent)> Procs = new();
@@ -137,7 +138,7 @@ public class AppForegroundTests
         public void At(long ms, Action action) => Events.Add((ms, action));
 
         public IReadOnlyList<W.Window> Snapshot(bool readAppIds) =>
-            Z.Select(w => new W.Window(w.Handle, w.Pid, w.Visible, w.Min, false, w.Owned, w.Ex, w.Area, w.Hosted, w.AppId, w.Bounds)).ToList();
+            Z.Select(w => new W.Window(w.Handle, w.Pid, w.Visible, w.Min, false, w.Owned || w.OwnerHandle != IntPtr.Zero, w.Ex, w.Area, w.Hosted, w.AppId, w.Bounds, w.OwnerHandle, w.IsShell)).ToList();
         public IReadOnlyList<W.ProcessEntry> Processes() =>
             Procs.Where(p => !Exited.Contains(p.Key)).Select(p => new W.ProcessEntry(p.Key, p.Value.Parent)).ToList();
         public W.ProcessIdentity Identity(uint pid) =>
@@ -601,6 +602,107 @@ public class AppForegroundTests
         Assert.Equal("behind", result.Outcome);
         Assert.Contains("raise-denied", result.Steps);
         Assert.Equal(Active, d.Top);
+    }
+
+    [Fact]
+    public void PidlOnlyShellShortcut_LikeFileExplorer_ResolvesToShellHostAndPrefersNewWindow()
+    {
+        var fileExplorer = new AppActivator.ResolvedShortcut(
+            "", null, null, ProcessWindowStyle.Normal, true, "Microsoft.Windows.Explorer", HasIdList: true);
+        var target = W.ResolveTarget("File Explorer.lnk", null, fileExplorer);
+        Assert.NotNull(target);
+        Assert.Equal(W.ShellHostPath(), target!.ImagePath);
+        Assert.Null(target.AppUserModelId);
+        Assert.True(target.PreferNewWindow);
+        Assert.True(target.MatchAnyNewWindow);
+
+        var dirTarget = W.ResolveTarget(Path.GetTempPath(), null, null);
+        Assert.NotNull(dirTarget);
+        Assert.Equal(W.ShellHostPath(), dirTarget!.ImagePath);
+        Assert.True(dirTarget.PreferNewWindow);
+        Assert.False(dirTarget.MatchAnyNewWindow);
+
+        if (W.ShellHostPath() is { Length: > 0 } explorer)
+        {
+            var directExplorer = W.ResolveTarget(explorer, @"C:\Users", null);
+            Assert.NotNull(directExplorer);
+            Assert.Equal(explorer, directExplorer!.ImagePath);
+            Assert.True(directExplorer.PreferNewWindow);
+            Assert.False(directExplorer.MatchAnyNewWindow);
+        }
+    }
+
+    [Fact]
+    public void DesktopShellWindow_IsNeverUserFacing()
+    {
+        var progman = new W.Window(new IntPtr(1), 6864, true, false, false, false, 0x100, true, IsShell: true);
+        Assert.False(W.IsUserFacing(progman));
+    }
+
+    [Fact]
+    public void ExplorerLaunch_PrefersNewFolderWindow_OverPreExistingMinimizedWindow()
+    {
+        const string explorer = @"C:\Windows\explorer.exe";
+        var d = new Desktop();
+        d.Add(new IntPtr(10), 6864, explorer).IsShell = true; // Progman desktop shell window
+        d.Add(new IntPtr(11), 6864).Min = true;               // pre-existing minimized folder
+        d.At(350, () => d.Add(new IntPtr(12), 6864));         // new CabinetWClass spawned by launch
+
+        var result = Run(d, new(explorer, null, PreferNewWindow: true, MatchAnyNewWindow: true));
+
+        Assert.Equal("foreground", result.Outcome);
+        Assert.Equal(new IntPtr(12), result.Window);
+        Assert.Equal(new IntPtr(12), d.Fg);
+        Assert.DoesNotContain(d.Calls, c => c.EndsWith(":10") || c.EndsWith(":11"));
+    }
+
+    [Fact]
+    public void ExplorerLaunch_FallsBackToExistingFolderWindow_WhenNoNewWindowOpens()
+    {
+        const string explorer = @"C:\Windows\explorer.exe";
+        var d = new Desktop();
+        d.Add(new IntPtr(10), 6864, explorer).IsShell = true;
+        d.Add(new IntPtr(11), 6864).Min = true;
+
+        var result = Run(d, new(explorer, null, PreferNewWindow: true));
+
+        Assert.Equal("foreground", result.Outcome);
+        Assert.Equal(new IntPtr(11), result.Window);
+        Assert.Equal(new IntPtr(11), d.Fg);
+        Assert.DoesNotContain(d.Calls, c => c.EndsWith(":10"));
+        Assert.True(result.ElapsedMs >= W.Session.PreferNewWindowGraceMs);
+    }
+
+    [Fact]
+    public void PidlShellShortcut_MatchesNewWindowFromOtherHostProcess()
+    {
+        const string explorer = @"C:\Windows\explorer.exe";
+        var d = new Desktop();
+        d.Add(new IntPtr(10), 50, @"C:\Other\Unrelated.exe"); // pre-existing unrelated app
+        d.At(300, () => d.Add(new IntPtr(15), 99, @"C:\Windows\System32\mmc.exe"));
+
+        var result = Run(d, new(explorer, null, PreferNewWindow: true, MatchAnyNewWindow: true));
+
+        Assert.Equal("foreground", result.Outcome);
+        Assert.Equal(new IntPtr(15), result.Window);
+        Assert.Equal(new IntPtr(15), d.Fg);
+        Assert.DoesNotContain(d.Calls, c => c.EndsWith(":10"));
+    }
+
+    [Fact]
+    public void TargetOwnedPopup_CountsAsForegroundSuccess()
+    {
+        var d = new Desktop { JoinBlocked = true };
+        d.Add(new IntPtr(10), 5, App);
+        var modal = d.Add(new IntPtr(11), 99, @"C:\Other\DialogHost.exe");
+        modal.OwnerHandle = new IntPtr(10);
+        d.At(400, () => d.Activate(modal));
+
+        var result = Run(d, new(App, null));
+
+        Assert.Equal("foreground", result.Outcome);
+        Assert.Equal(new IntPtr(11), result.Window);
+        Assert.Equal(new IntPtr(11), d.Fg);
     }
 
     // Real Win32 windows: the native snapshot must report the metadata the rules depend on.

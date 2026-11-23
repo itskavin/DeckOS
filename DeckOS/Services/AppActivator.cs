@@ -24,7 +24,8 @@ namespace DeckOS.Services
             string? WorkingDirectory,
             ProcessWindowStyle WindowStyle,
             bool RequiresShellExecute,
-            string? AppUserModelId = null);
+            string? AppUserModelId = null,
+            bool HasIdList = false);
 
         private sealed record CachedShortcut(string Key, DateTime LastWriteUtc, ResolvedShortcut? Resolved);
 
@@ -298,12 +299,24 @@ namespace DeckOS.Services
                         requiresShell = true;
                 }
 
+                // S_FALSE (1) means a valid PIDL-only shell shortcut (e.g. File Explorer, Control Panel, Run)
+                // with no filesystem target path; preserve its IDList and AppUserModelId for ShellExecute + focus.
                 var targetBuf = new StringBuilder(1024);
-                if (link.GetPath(targetBuf, targetBuf.Capacity, IntPtr.Zero, SLGP_RAWPATH) != 0)
+                var hrPath = link.GetPath(targetBuf, targetBuf.Capacity, IntPtr.Zero, SLGP_RAWPATH);
+                if (hrPath < 0)
                     return null;
-                var target = Environment.ExpandEnvironmentVariables(targetBuf.ToString().Trim());
+                var target = hrPath == 0
+                    ? Environment.ExpandEnvironmentVariables(targetBuf.ToString().Trim())
+                    : "";
                 if (target.Length == 0 || !target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                     requiresShell = true;
+
+                var hasIdList = false;
+                if (link.GetIDList(out var pidl) == 0 && pidl != IntPtr.Zero)
+                {
+                    hasIdList = true;
+                    Marshal.FreeCoTaskMem(pidl);
+                }
 
                 var argsBuf = new StringBuilder(2048);
                 var args = link.GetArguments(argsBuf, argsBuf.Capacity) == 0 ? argsBuf.ToString().Trim() : "";
@@ -330,7 +343,8 @@ namespace DeckOS.Services
                     workDir.Length > 0 ? workDir : null,
                     style,
                     requiresShell,
-                    WindowsAppForeground.ReadAppUserModelId(obj));
+                    WindowsAppForeground.ReadAppUserModelId(obj),
+                    hasIdList);
             }
             catch (Exception ex)
             {
