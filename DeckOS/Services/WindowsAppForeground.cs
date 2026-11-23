@@ -12,16 +12,16 @@ namespace DeckOS.Services;
 // Brings the launched app's user-facing window in front of the active app.
 //
 // A deck tap arrives over the network, so Windows treats DeckOS as a background process:
-// while the user is active (foreground lock) it refuses SetForegroundWindow, joined-input
-// SetForegroundWindow, SwitchToThisWindow and activation by SW_RESTORE or SC_RESTORE, and the
-// apps DeckOS starts or wakes inherit that refusal (measured on Windows 11 26300). Apps that
-// still come forward (Chromium, Firefox; UI Automation's SetFocus too) inject a synthetic
-// hotkey, which DeckOS does not do. What Windows does allow is normal stacking: the window is
-// placed above the active app without activation (not topmost), so it opens in front and the
-// user's click focuses it. Activation is still tried first and wins whenever Windows permits
-// it (idle past the lock timeout, no foreground window, the app activating itself).
-// Every step is verified against the real foreground window and z-order. No input
-// injection, topmost, lock changes or touching other apps' windows.
+// while the user is active (foreground lock) it refuses DeckOS's SetForegroundWindow, also
+// with DeckOS's own thread joined to the foreground input queue, SwitchToThisWindow and
+// activation by SW_RESTORE or SC_RESTORE; the apps DeckOS starts or wakes inherit that
+// refusal (measured on Windows 11 26300). What Windows allows: joining the TARGET window's
+// thread to the foreground thread's queue, so activation is a switch inside the active input
+// context (Firefox activates itself the same way), and, if even that is blocked (elevated
+// app, hung thread), normal stacking: the window is placed above the active app without
+// activation (not topmost). Every step is verified against the real foreground window and
+// z-order. No input injection (Chromium's and UI Automation's synthetic hotkey), topmost,
+// lock or policy changes, and other apps' windows are never touched.
 //
 // Identity comes from launch metadata: shortcut/exe image path, packaged AUMID and the
 // process tree the launch started (launcher stubs that start the real UI from the same
@@ -31,7 +31,8 @@ internal static class WindowsAppForeground
     internal sealed record Target(string? ImagePath, string? AppUserModelId);
 
     internal sealed record Window(IntPtr Handle, uint ProcessId, bool Visible, bool Minimized, bool Cloaked,
-        bool Owned, long ExStyle, bool HasArea, uint HostedProcessId = 0, string? AppUserModelId = null);
+        bool Owned, long ExStyle, bool HasArea, uint HostedProcessId = 0, string? AppUserModelId = null,
+        (int Left, int Top, int Right, int Bottom) Bounds = default);
 
     internal sealed record ProcessEntry(uint Id, uint ParentId);
 
@@ -157,11 +158,14 @@ internal static class WindowsAppForeground
     internal sealed class Session
     {
         internal const int FirstWindowMs = 12000, SettleMs = 1500, RetryMs = 250,
-            ExitedLaunchMs = 4000, NewWindowGraceMs = 300;
+            ExitedLaunchMs = 4000, NewWindowGraceMs = 300, LayoutMs = 2000, MaxRaises = 3,
+            RaiseVerifyMs = 300;
 
         private sealed class Progress
         {
-            public long FirstSeen, LastTry = long.MinValue / 2, RaisedAt = -1;
+            public long FirstSeen, LastTry = long.MinValue / 2, RaisedAt = -1, BoundsSince;
+            public (int, int, int, int) LastBounds, RaisedBounds;
+            public int Raises;
             public bool Restored;
         }
 
@@ -240,14 +244,32 @@ internal static class WindowsAppForeground
                     return Finish(raised != null ? "raised" : "user-switched", raised, elapsed);
 
                 var pick = candidates.FirstOrDefault(w => !_before.Contains(w.Handle)) ?? candidates.FirstOrDefault();
-                if (pick != null && Seen(pick, elapsed).RaisedAt is var raisedAt and >= 0)
+                var progress = pick == null ? null : Seen(pick, elapsed);
+                if (progress != null && pick!.Bounds != progress.LastBounds)
+                {
+                    progress.LastBounds = pick.Bounds;
+                    progress.BoundsSince = elapsed;
+                }
+                if (progress is { RaisedAt: >= 0 })
                 {
                     // In front by normal stacking; give the app a moment to activate itself, then stop.
-                    // A click on another window ends it too: never stack over the user's choice again.
+                    // The raise is asynchronous: the app's own thread applies it a moment later.
                     raised = pick;
-                    var above = IsAbove(windows, pick.Handle, foreground);
-                    if (!above || elapsed - raisedAt >= SettleMs)
+                    var above = IsAbove(windows, pick!.Handle, foreground) || elapsed - progress.RaisedAt < RaiseVerifyMs;
+                    // A cold app still laying out moves and re-stacks its own window: stack it again.
+                    // A click on another window leaves ours untouched, so the user's choice is kept.
+                    if (!above && pick.Bounds != progress.RaisedBounds && progress.Raises < MaxRaises)
+                    {
+                        progress.RaisedAt = -1;
+                        progress.LastTry = long.MinValue / 2;
+                    }
+                    else if (!above || elapsed - progress.RaisedAt >= SettleMs)
                         return Finish(above ? "raised" : "behind", pick, elapsed);
+                }
+                else if (progress != null && !_before.Contains(pick!.Handle) &&
+                         elapsed - progress.BoundsSince < NewWindowGraceMs && elapsed - progress.FirstSeen < LayoutMs)
+                {
+                    // New window still being sized and placed by its app; act once it holds still.
                 }
                 else if (pick != null) Advance(pick, elapsed, windows, foreground);
                 else if (elapsed >= FirstWindowMs ||
@@ -292,6 +314,8 @@ internal static class WindowsAppForeground
             if (_os.SetForeground(w.Handle, true, out var attached)) { _steps.Add($"attach@{elapsed}"); return; }
             _steps.Add($"refused@{elapsed}({direct};{attached})");
             p.RaisedAt = elapsed;
+            p.RaisedBounds = w.Bounds;
+            p.Raises++;
             _steps.Add(IsAbove(windows, w.Handle, foreground) ? $"above@{elapsed}" : Step(_os.Raise(w.Handle), "raise", elapsed));
         }
 
@@ -388,7 +412,7 @@ internal static class WindowsAppForeground
                 }
                 list.Add(new Window(window, pid, visible, IsIconic(window), cloaked,
                     GetWindow(window, 4 /* GW_OWNER */) != IntPtr.Zero, GetWindowLongPtr(window, -20).ToInt64(),
-                    rect.Right > rect.Left && rect.Bottom > rect.Top, hosted, appId));
+                    rect.Right > rect.Left && rect.Bottom > rect.Top, hosted, appId, (rect.Left, rect.Top, rect.Right, rect.Bottom)));
                 return true;
             }, IntPtr.Zero);
             return list;
@@ -432,6 +456,9 @@ internal static class WindowsAppForeground
             return _identities[processId] = identity;
         }
 
+        private static bool Responsive(IntPtr window) =>
+            SendMessageTimeout(window, 0 /* WM_NULL */, IntPtr.Zero, IntPtr.Zero, 0x0002 /* ABORTIFHUNG */, 200, out _) != IntPtr.Zero;
+
         public bool SetForeground(IntPtr window, bool attachInput, out string detail)
         {
             // A disabled main window has a modal dialog; Alt+Tab activates that popup instead.
@@ -444,17 +471,29 @@ internal static class WindowsAppForeground
                 return GetForegroundWindow() == window;
             }
 
-            // Joining the foreground input queue is the documented-adjacent way a background thread
-            // shares activation state. Windows may still refuse it; always detach.
-            var currentThread = GetCurrentThreadId();
-            var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
-            PeekMessage(out _, IntPtr.Zero, 0, 0, 0); // Ensure this thread has an input queue.
-            var attached = foregroundThread != 0 && foregroundThread != currentThread &&
-                AttachThreadInput(currentThread, foregroundThread, true);
+            // Join the TARGET window's thread to the foreground thread's input queue: activation is
+            // then a switch inside the active input context, which Windows allows (measured; Firefox
+            // does the same from its own thread). Joining DeckOS's own thread instead is refused.
+            // While joined the two apps share input state, so both must be responsive right now and
+            // the join is always undone. Windows still blocks this across integrity levels (UIPI).
+            var foreground = GetForegroundWindow();
+            var targetThread = GetWindowThreadProcessId(window, out _);
+            var foregroundThread = GetWindowThreadProcessId(foreground, out _);
+            if (targetThread == 0 || foregroundThread == 0 || targetThread == foregroundThread)
+            {
+                detail = "attach-none";
+                return false;
+            }
+            if (!Responsive(window) || !Responsive(foreground))
+            {
+                detail = "attach-hung";
+                return false;
+            }
+            var attached = AttachThreadInput(targetThread, foregroundThread, true);
             var error = attached ? 0 : Marshal.GetLastWin32Error();
-            bool set;
-            try { set = SetForegroundWindow(window); }
-            finally { if (attached) AttachThreadInput(currentThread, foregroundThread, false); }
+            var set = false;
+            try { if (attached) set = SetForegroundWindow(window); }
+            finally { if (attached) AttachThreadInput(targetThread, foregroundThread, false); }
             detail = $"attach-{(attached ? "ok" : "err" + error)}-{(set ? "set" : "denied")}";
             return GetForegroundWindow() == window;
         }
@@ -493,17 +532,6 @@ internal static class WindowsAppForeground
 
     private delegate bool EnumWindowProc(IntPtr window, IntPtr parameter);
     [StructLayout(LayoutKind.Sequential)]
-    private struct Message
-    {
-        public IntPtr Window;
-        public uint Id;
-        public UIntPtr WParam;
-        public IntPtr LParam;
-        public uint Time;
-        public int X, Y;
-        public uint Private;
-    }
-    [StructLayout(LayoutKind.Sequential)]
     private struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct ProcessEntry32
@@ -515,7 +543,7 @@ internal static class WindowsAppForeground
         public uint Flags;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string ExeFile;
     }
-    [DllImport("user32.dll")] private static extern bool PeekMessage(out Message message, IntPtr window, uint min, uint max, uint remove);
+    [DllImport("user32.dll")] private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowProc callback, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowProc callback, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
@@ -533,7 +561,6 @@ internal static class WindowsAppForeground
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int count);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
-    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll")] private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
