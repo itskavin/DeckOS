@@ -12,16 +12,18 @@ namespace DeckOS.Services;
 // Brings the launched app's user-facing window in front of the active app.
 //
 // A deck tap arrives over the network, so Windows treats DeckOS as a background process:
-// while the user is active (foreground lock) it refuses DeckOS's SetForegroundWindow, also
-// with DeckOS's own thread joined to the foreground input queue, SwitchToThisWindow and
-// activation by SW_RESTORE or SC_RESTORE; the apps DeckOS starts or wakes inherit that
-// refusal (measured on Windows 11 26300). What Windows allows: joining the TARGET window's
-// thread to the foreground thread's queue, so activation is a switch inside the active input
-// context (Firefox activates itself the same way), and, if even that is blocked (elevated
-// app, hung thread), normal stacking: the window is placed above the active app without
-// activation (not topmost). Every step is verified against the real foreground window and
-// z-order. No input injection (Chromium's and UI Automation's synthetic hotkey), topmost,
-// lock or policy changes, and other apps' windows are never touched.
+// while the user is active (foreground lock) it refuses DeckOS's direct SetForegroundWindow,
+// SwitchToThisWindow, and SW_RESTORE/SC_RESTORE activation; the apps DeckOS starts or wakes
+// inherit that refusal (measured on Windows 11 26300). Joining only caller->fg OR only
+// target->fg still leaves classes of apps (Tauri, MSIX, UWP ApplicationFrameHost) behind.
+// What Windows allows reliably across normal desktop, MSIX, and UWP apps: joining BOTH our
+// worker thread and the target window's thread to the foreground thread's input queue for a
+// single SetForegroundWindow (+ BringWindowToTop if needed, which also activates UWP
+// ApplicationFrameHost when target->fg returns ACCESS_DENIED), guarded by hung checks and
+// always detached in finally. If even that is blocked (elevated foreground/UIPI, hung thread),
+// we fall back to normal stacking (HWND_TOP, never topmost). Every step is verified against
+// the real foreground window and z-order. No input injection, topmost, lock or policy changes,
+// and other apps' windows are never touched.
 //
 // Identity comes from launch metadata: shortcut/exe image path, packaged AUMID and the
 // process tree the launch started (launcher stubs that start the real UI from the same
@@ -553,17 +555,21 @@ internal static class WindowsAppForeground
                 return IsForegroundOrOwned(window);
             }
 
-            // Join the TARGET window's thread to the foreground thread's input queue: activation is
-            // then a switch inside the active input context, which Windows allows (measured; Firefox
-            // does the same from its own thread). Joining DeckOS's own thread instead is refused.
-            // Same argument order as PowerToys WindowHelpers.BringToForeground (MIT), without its SendInput.
-            // While joined the two apps share input and keyboard state, so both must be responsive
-            // right now, nothing else runs while joined, and the join is always undone at once.
-            // Windows still blocks it across integrity levels (UIPI) and desktops.
+            // Join both our worker thread and the target window's thread to the foreground thread's
+            // input queue so Windows treats the activation as a switch inside the active input
+            // context (PowerToys MIT WindowHelpers uses target->fg without SendInput; AutoHotkey
+            // documents that joining both caller->fg and target->fg succeeds reliably where a
+            // single edge fails, and caller->fg + BringWindowToTop also activates UWP
+            // ApplicationFrameHost windows where target->fg returns ERROR_ACCESS_DENIED).
+            // While joined the threads share input and keyboard state, so both windows must be
+            // responsive right now, only SetForegroundWindow/BringWindowToTop run while joined,
+            // and both edges are always detached in reverse order in finally.
+            // Windows still blocks it across integrity levels (UIPI/elevated fg) and desktops.
             var foreground = GetForegroundWindow();
+            var myThread = GetCurrentThreadId();
             var targetThread = GetWindowThreadProcessId(window, out _);
             var foregroundThread = GetWindowThreadProcessId(foreground, out _);
-            if (targetThread == 0 || foregroundThread == 0 || targetThread == foregroundThread)
+            if (targetThread == 0 || foregroundThread == 0)
             {
                 detail = "attach-none";
                 return false;
@@ -573,12 +579,34 @@ internal static class WindowsAppForeground
                 detail = "attach-hung";
                 return false;
             }
-            var attached = AttachThreadInput(targetThread, foregroundThread, true);
-            var error = attached ? 0 : Marshal.GetLastWin32Error();
+            bool attachedMe = false, attachedTarget = false;
+            int errMe = 0, errTarget = 0;
+            if (myThread != foregroundThread)
+            {
+                attachedMe = AttachThreadInput(myThread, foregroundThread, true);
+                if (!attachedMe) errMe = Marshal.GetLastWin32Error();
+            }
+            if (targetThread != foregroundThread && targetThread != myThread)
+            {
+                attachedTarget = AttachThreadInput(targetThread, foregroundThread, true);
+                if (!attachedTarget) errTarget = Marshal.GetLastWin32Error();
+            }
             var set = false;
-            try { if (attached) set = SetForegroundWindow(window); }
-            finally { if (attached) AttachThreadInput(targetThread, foregroundThread, false); }
-            detail = $"attach-{(attached ? "ok" : "err" + error)}-{(set ? "set" : "denied")}";
+            var top = false;
+            try
+            {
+                if (attachedMe || attachedTarget)
+                {
+                    set = SetForegroundWindow(window);
+                    if (!IsForegroundOrOwned(window)) top = BringWindowToTop(window);
+                }
+            }
+            finally
+            {
+                if (attachedTarget) AttachThreadInput(targetThread, foregroundThread, false);
+                if (attachedMe) AttachThreadInput(myThread, foregroundThread, false);
+            }
+            detail = $"attach-{(attachedMe ? "m" : "m" + errMe)}-{(attachedTarget ? "t" : "t" + errTarget)}-{(set || top ? "set" : "denied")}";
             return IsForegroundOrOwned(window);
         }
     }
@@ -637,6 +665,7 @@ internal static class WindowsAppForeground
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr window);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern IntPtr GetLastActivePopup(IntPtr window);
@@ -647,6 +676,7 @@ internal static class WindowsAppForeground
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int count);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll")] private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
