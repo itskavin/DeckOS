@@ -208,7 +208,7 @@ internal static class WindowsAppForeground
         {
             _target = target;
             _os = os;
-            _before = os.Snapshot(false).Select(w => w.Handle).ToHashSet();
+            _before = os.Snapshot(false).Where(IsUserFacing).Select(w => w.Handle).ToHashSet();
             _originalForeground = os.Foreground();
             _startedUtc = os.UtcNow;
             _startMs = os.ElapsedMs;

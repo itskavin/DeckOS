@@ -646,7 +646,9 @@ public class AppForegroundTests
         var d = new Desktop();
         d.Add(new IntPtr(10), 6864, explorer).IsShell = true; // Progman desktop shell window
         d.Add(new IntPtr(11), 6864).Min = true;               // pre-existing minimized folder
-        d.At(350, () => d.Add(new IntPtr(12), 6864));         // new CabinetWClass spawned by launch
+        var prewarmed = d.Add(new IntPtr(12), 6864);          // Win11 pre-warmed hidden CabinetWClass
+        prewarmed.Visible = false;
+        d.At(350, () => prewarmed.Visible = true);            // shown by File Explorer launch
 
         var result = Run(d, new(explorer, null, PreferNewWindow: true, MatchAnyNewWindow: true));
 
