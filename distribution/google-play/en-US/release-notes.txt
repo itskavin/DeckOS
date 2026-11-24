@@ -1,0 +1,1 @@
+Initial Google Play release candidate. Customize PC control buttons, profiles and audio controls, and view supported AI usage sources with account aliases and privacy masking. Requires the DeckOS PC companion.

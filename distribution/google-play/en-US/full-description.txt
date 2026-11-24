@@ -1,0 +1,26 @@
+Turn your Android phone into a customizable remote control for your PC.
+
+DeckOS requires the DeckOS companion running on your computer. It sends actions to your PC; it does not run Windows apps on your phone. Start with the Windows 10/11 companion and connect your phone and PC on the same private network. USB connection is also available with additional setup.
+
+YOUR PC, ONE TAP AWAY
+Create buttons for keyboard shortcuts, opening applications, media commands and sequences of actions. Organize them into profiles, customize the layout and choose the appearance that suits your desk. On Windows, profiles can follow the foreground application.
+
+AUDIO AND INTEGRATIONS
+Use the audio controls and configure optional integrations, including OBS Studio, Discord and other supported desktop services. These features need the corresponding applications, accounts or services on your PC. Availability varies by integration and operating system.
+
+AI USAGE AT A GLANCE
+Add individual or combined AI Limits tiles from supported local CLI usage sources, configured local services or manual entries. Use account aliases and privacy masking to control displayed labels. Data availability and freshness depend on the provider and source. Unavailable information is shown as unavailable; DeckOS cannot guarantee access to every account or subscription quota.
+
+MAKE IT YOURS
+Choose light or dark themes, adjust spacing and tile shapes, and keep the screen awake while DeckOS is in the foreground. Pair by scanning the PC's QR code or enter its address manually. Camera access is optional.
+
+GETTING STARTED
+1. Download and run the DeckOS PC companion from https://itskavin.github.io/DeckOS/?lang=en
+2. Connect your phone and PC to the same trusted private network.
+3. Open the companion's pairing QR code and scan it in DeckOS, or enter the PC address.
+4. Configure your buttons and profiles on the PC.
+
+DeckOS includes no ads or in-app purchases. Third-party applications and services may have their own account, plan or license requirements. This listing describes the Android remote and the Windows companion. macOS and Linux companion source builds exist, but their desktop behavior has not been physically verified for this release.
+
+Published by Bytetrix.
+Support: contact@kavin.sh

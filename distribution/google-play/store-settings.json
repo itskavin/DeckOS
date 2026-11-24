@@ -1,0 +1,19 @@
+{
+  "status": "DRAFT_TRANSPORT_BLOCKED_NOT_SUBMITTED",
+  "applicationId": "io.github.itskavin.deckos",
+  "appName": "DeckOS",
+  "publisherDisplayName": "Bytetrix",
+  "supportEmail": "contact@kavin.sh",
+  "website": "https://itskavin.github.io/DeckOS/?lang=en",
+  "candidatePrivacyPolicyUrl": "https://itskavin.github.io/DeckOS/privacy/",
+  "privacyPolicyPublished": false,
+  "defaultLanguage": "en-US",
+  "suggestedCategory": "Tools",
+  "ads": false,
+  "inAppPurchases": false,
+  "appOwnAccountCreation": false,
+  "requiresPcCompanion": true,
+  "versionName": "1.0.0",
+  "candidateVersionCode": 10,
+  "playApplicationCreated": false
+}

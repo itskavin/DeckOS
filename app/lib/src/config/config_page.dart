@@ -21,6 +21,7 @@ import 'keep_awake.dart';
 import 'pc_info.dart';
 import 'qr_scan_page.dart';
 import 'settings_kit.dart';
+import 'privacy_notice_page.dart';
 import '../welcome/welcome_page.dart';
 
 const _repoUrl = 'https://github.com/itskavin/DeckOS';
@@ -720,6 +721,13 @@ class ConfigPageState extends State<ConfigPage> {
         ),
       ]),
       _Section(tr('Sobre'), null, [
+        _row(
+          title: tr('Privacidade e conexão local'),
+          icon: Icons.privacy_tip_outlined,
+          color: c.blue,
+          keywords: 'privacy dados camera rede segurança',
+          onTap: () => _push(const PrivacyNoticePage()),
+        ),
         if (info?.version != null)
           _row(
             title: tr('DeckOS no PC'),

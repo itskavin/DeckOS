@@ -4,8 +4,22 @@ import java.io.FileInputStream
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
 }
+
+// CI/local secrets can stay outside the checkout. Never print their values.
+fun signingValue(environmentName: String, propertyName: String): String? =
+    System.getenv(environmentName)?.takeIf { it.isNotBlank() }
+        ?: keystoreProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
+
+val releaseStorePath = signingValue("ANDROID_KEYSTORE_PATH", "storeFile")
+val releaseStorePassword = signingValue("ANDROID_STORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("ANDROID_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("ANDROID_KEY_PASSWORD", "keyPassword")
+val signingValues = listOf(releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+val hasReleaseSigning = signingValues.all { it != null }
+val hasPartialReleaseSigning = signingValues.any { it != null } && !hasReleaseSigning
+val allowUnsignedRelease = System.getenv("DECKOS_ALLOW_UNSIGNED_RELEASE") == "true"
 
 plugins {
     id("com.android.application")
@@ -24,7 +38,6 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "io.github.itskavin.deckos"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -35,21 +48,35 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String?
-            keyPassword = keystoreProperties["keyPassword"] as String?
-            storeFile = (keystoreProperties["storeFile"] as String?)?.let { file(it) }
-            storePassword = keystoreProperties["storePassword"] as String?
+        if (hasReleaseSigning) {
+            create("release") {
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                storeFile = file(releaseStorePath!!)
+                storePassword = releaseStorePassword
+            }
         }
     }
 
     buildTypes {
         release {
-            // Assina com a chave de release quando key.properties existe; senão, debug (dev).
-            signingConfig = if (keystorePropertiesFile.exists())
-                signingConfigs.getByName("release")
-            else
-                signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else null
+        }
+    }
+}
+
+// Keep debug builds and IDE sync available without credentials, but fail closed
+// whenever a release task actually runs. An unsigned candidate requires opt-in.
+gradle.taskGraph.whenReady {
+    if (allTasks.any { it.project == project && it.name.contains("Release") }) {
+        check(!hasPartialReleaseSigning) {
+            "Incomplete upload signing configuration. Supply all four ANDROID_* signing values or key.properties fields."
+        }
+        check(hasReleaseSigning || allowUnsignedRelease) {
+            "Upload signing is missing. Configure a private upload key, or explicitly set DECKOS_ALLOW_UNSIGNED_RELEASE=true for a non-uploadable candidate."
+        }
+        check(!hasReleaseSigning || file(releaseStorePath!!).isFile) {
+            "Configured upload keystore does not exist."
         }
     }
 }

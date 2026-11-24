@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'onboarding.dart';
 import 'pairing.dart';
 import 'qr_viewfinder_page.dart';
+import '../config/privacy_notice_page.dart';
 
 /// Primeira tela de quem ainda não pareou, no molde das boas-vindas dos apps da Apple:
 /// título grande, três passos com ícone e, embaixo, "Escanear código QR" e "Encontrar
@@ -267,6 +268,12 @@ class _WelcomePageState extends State<WelcomePage> {
             TextButton(onPressed: _typeAddress, child: Text(tr('Digitar o endereço'))),
             TextButton(onPressed: _moreOptions, child: Text(tr('Mais opções de conexão'))),
             TextButton(onPressed: _openSite, child: Text(tr('Ver o site neste celular'))),
+            TextButton(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const PrivacyNoticePage(),
+              )),
+              child: Text(tr('Privacidade e conexão local')),
+            ),
           ],
         ),
       ],

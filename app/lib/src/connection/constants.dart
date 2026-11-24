@@ -8,6 +8,6 @@ class Constants {
 
   /// Site do projeto (download do DeckOS para Windows). [siteDisplay] é a forma curta,
   /// para a pessoa digitar no navegador do PC.
-  static const siteUrl = "https://itskavin.github.io/DeckOS/?lang=pt";
+  static const siteUrl = "https://itskavin.github.io/DeckOS/?lang=en";
   static const siteDisplay = "itskavin.github.io/DeckOS";
 }

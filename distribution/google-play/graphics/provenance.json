@@ -1,0 +1,58 @@
+{
+  "status": "DRAFT_NOT_UPLOADED",
+  "iconSource": "branding/deckos-icon-512.png",
+  "iconSourceSha256": "1fea684dd0289e16d4f7a2ef8399a610114b8ab63fc722592be29a317b4059a4",
+  "featureGraphic": "Original text composition using the supplied DeckOS logo; no new logo or generated photography.",
+  "screenshotCaptureNote": "Captures predate candidate 10 release hardening; unchanged main deck/AI UI. No privacy/security screens are represented.",
+  "privacyReview": "Visually reviewed: no personal names, emails, keys, QR codes or private host addresses. Current source states, not quota guarantees.",
+  "screenshots": [
+    {
+      "file": "01-custom-deck.png",
+      "source": "readme-phone-deck-landscape-dark.png",
+      "sourceSha256": "592ea35244a342fa022b0f18d5f28d4e4d2f9c6078a086c8636339de4a4db179",
+      "outputSha256": "dc83b2fbb69cf9f77b066c1bf7b34c2b732ad93594ad792aaecc21f4ab0713c0",
+      "sourceSize": [
+        1206,
+        540
+      ],
+      "outputSize": [
+        1206,
+        603
+      ],
+      "changes": "Plain margins only; no UI text/data edits.",
+      "note": "Existing real project deck screenshot; deck-only mode and custom tiles."
+    },
+    {
+      "file": "02-ai-overview.png",
+      "source": "controls-new-native.png",
+      "sourceSha256": "5351a774d699a13985033f91dac84deb30f5e46509b959301d4e589670a98786",
+      "outputSha256": "eafd418dcfffa79888ec24e0866f7e1cda8c4aa1d6421d4762219301bdb5a8b0",
+      "sourceSize": [
+        2412,
+        1080
+      ],
+      "outputSize": [
+        2412,
+        1206
+      ],
+      "changes": "Plain margins only; no UI text/data edits.",
+      "note": "Actual Android capture; account masking is enabled in the app."
+    },
+    {
+      "file": "03-ai-source-status.png",
+      "source": "reactive-masked-details-new-native.png",
+      "sourceSha256": "b9cc123edf1ba46f6906732651ee340a3a6394a55b32a70d51052751bd8628d4",
+      "outputSha256": "41e9cb57d9a9771443362039d513b294169ea08b213d6afe7ecd3dfea7644284",
+      "sourceSize": [
+        2412,
+        1080
+      ],
+      "outputSize": [
+        2412,
+        1206
+      ],
+      "changes": "Plain margins only; no UI text/data edits.",
+      "note": "Actual Android capture; masked labels and genuine unavailable source states."
+    }
+  ]
+}
