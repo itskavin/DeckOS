@@ -43,8 +43,8 @@ namespace DeckOS.Services
         /// adb reverse tambem chega como loopback; ver Lib/UsbBridge.cs).
         /// </summary>
         public static bool IsLocal(Microsoft.AspNetCore.Http.ConnectionInfo connection) =>
-            IsLocal(connection.RemoteIpAddress) &&
-            !Lib.UsbBridge.IsForwarded(connection.RemoteIpAddress, connection.RemotePort);
+            IsLocal(connection.RemoteIpAddress) && connection.LocalPort != Lib.PairingInfo.Port &&
+            !Lib.UsbBridge.IsForwarded(connection.RemoteIpAddress, connection.RemotePort, connection.LocalPort);
 
         /// <summary>A acao executa codigo no PC? Multi-acao herda dos passos.</summary>
         public static bool IsPrivileged(DeckAction? action)

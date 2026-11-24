@@ -10,7 +10,8 @@ namespace DeckOS.Lib
     /// </summary>
     public static class PairingInfo
     {
-        public const int DefaultPort = 4787;
+        public const int DefaultPort = 4788;
+        public static int LocalPort { get; private set; } = 4787;
 
         private static volatile int _port = PortFromUrls(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")) ?? DefaultPort;
 
@@ -36,7 +37,7 @@ namespace DeckOS.Lib
                 // "+" e "*" (qualquer interface) nao sao hosts validos para o Uri.
                 var normalized = Regex.Replace(url, @"://[+*]", "://localhost");
                 if (!Uri.TryCreate(normalized, UriKind.Absolute, out var uri) || uri.Port <= 0) continue;
-                if (uri.Scheme == Uri.UriSchemeHttp) return uri.Port;
+                if (uri.Scheme == Uri.UriSchemeHttps) return uri.Port;
                 first ??= uri.Port;
             }
             return first;
@@ -45,7 +46,11 @@ namespace DeckOS.Lib
         /// <summary>Guarda a porta em que o servidor realmente escuta (vale a de porta 0 resolvida).</summary>
         public static void UseBoundAddresses(IEnumerable<string> addresses)
         {
-            if (PortFromUrls(addresses) is { } port) _port = port;
+            var list = addresses.ToArray();
+            var secure = list.Where(a => a.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+            if (PortFromUrls(secure) is { } port) _port = port;
+            foreach (var address in list)
+                if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme == "http" && uri.IsLoopback) LocalPort = uri.Port;
         }
 
         /// <summary>Ajuste direto da porta (usado pelos testes para restaurar o estado).</summary>
@@ -55,8 +60,8 @@ namespace DeckOS.Lib
         public static string BuildUri()
         {
             var ip = NetworkInfo.GetLanIp();
-            var key = ApiKeyProvider.GetKey();
-            return $"deckos://pair?ip={ip}&port={Port}&key={key}";
+            var token = SecurePairing.Shared.IssueToken();
+            return $"deckos://pair?v=2&endpoint={Uri.EscapeDataString($"https://{ip}:{Port}")}&pin={CompanionCertificate.Pin}&token={token}";
         }
 
         /// <summary>
@@ -66,8 +71,8 @@ namespace DeckOS.Lib
         public static string BuildBrowserUrl()
         {
             var ip = NetworkInfo.GetLanIp();
-            var key = ApiKeyProvider.GetKey();
-            return $"http://{ip}:{Port}/?pair={System.Uri.EscapeDataString(key)}";
+            var token = SecurePairing.Shared.IssueToken();
+            return $"https://{ip}:{Port}/#pair={token}";
         }
 
         public static byte[] BuildQrPng(string uri, int pixelsPerModule = 10)

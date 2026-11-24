@@ -53,6 +53,7 @@ def main():
     assert int(sdk.attrib[ANDROID + 'targetSdkVersion']) >= 36
     assert app.attrib.get(ANDROID + 'debuggable', 'false') == 'false'
     assert app.attrib[ANDROID + 'allowBackup'] == 'false'
+    assert app.attrib.get(ANDROID + 'usesCleartextTraffic') == 'false', 'Remote release cleartext must be denied'
     config = json.loads(args.config.read_text(encoding='utf-8-sig'))
     assert config['optimizations']['uncompressNativeLibraries']['alignment'] == 'PAGE_ALIGNMENT_16K'
 

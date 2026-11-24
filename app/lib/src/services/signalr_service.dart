@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:deckos/src/connection/transport_policy.dart';
+import 'package:deckos/src/connection/secure_signalr.dart';
 
 import 'package:deckos/core/core.dart';
 import 'package:deckos/src/connection/usb_route.dart';
@@ -204,12 +206,14 @@ class SignalRService {
   // REST voltava sozinho — dando o sintoma "os controles funcionam mas os dados
   // nao atualizam", porque comando e REST e todo estado ao vivo e hub.
   String? _lastBaseUrl;
+  TransportPolicy? _lastPolicy;
   String? _lastApiKey;
   Timer? _retryTimer;
   int _retryCount = 0;
 
   /// Parada deliberada (updateUrl/dispose): nao reagendar reconexao.
   bool _stopped = false;
+  int _generation = 0;
 
   /// O stop() de uma conexao cujo socket morreu sem fechar (cabo USB caiu no meio) pode
   /// nunca terminar. A conexao ja saiu de _hubConnection: espera um pouco e segue.
@@ -226,7 +230,11 @@ class SignalRService {
     _retryCount++;
     connectionStatus.value = 'Reconnecting in ${delay ~/ 1000}s...';
 
+    final generation = _generation;
+    final credential = _lastApiKey;
+    final policy = _lastPolicy;
     _retryTimer = Timer(Duration(milliseconds: delay), () async {
+      if (_stopped || generation != _generation) return;
       // init() e no-op enquanto _hubConnection nao for null, entao a instancia
       // morta precisa sair da frente antes da nova tentativa.
       final dead = _hubConnection;
@@ -237,9 +245,11 @@ class SignalRService {
         // Conexao ja estava quebrada; nada a fazer.
       }
       // O cabo USB pode ter entrado ou saído: escolhe o caminho de novo e leva o REST junto.
-      final route = await UsbRoute.pick(url, apiKey: _lastApiKey);
+      if (_stopped || generation != _generation) return;
+      final route = await UsbRoute.pick(url, apiKey: credential, policy: policy);
+      if (_stopped || generation != _generation) return;
       if (route != url) Injector.get<DeckOSClient>().setBaseUrl(route);
-      await init(route, apiKey: _lastApiKey);
+      await init(route, apiKey: credential, policy: policy);
     });
   }
 
@@ -262,18 +272,27 @@ class SignalRService {
     final url = _lastBaseUrl;
     // Outra requisição já trocou o caminho: repete no atual.
     if (url == null || !UsbRoute.isUsb(url)) return url;
-    final route = await UsbRoute.pick(url, apiKey: _lastApiKey);
+    final generation = _generation;
+    final credential = _lastApiKey;
+    final policy = _lastPolicy;
+    final route = await UsbRoute.pick(url, apiKey: credential, policy: policy);
+    if (_stopped || generation != _generation) return null;
     if (route == url || _lastBaseUrl != url) return _lastBaseUrl;
     _logger.info('USB route gone, moving to the network address');
     Injector.get<DeckOSClient>().setBaseUrl(route);
     // Sem esperar o hub: a requisição recusada repete já no endereço novo.
-    unawaited(updateUrl(route, apiKey: _lastApiKey));
+    unawaited(updateUrl(route, apiKey: credential, policy: policy));
     return route;
   }
 
   /// Encerra a conexao e cancela reconexoes pendentes.
   Future<void> dispose() async {
+    _generation++;
     _stopped = true;
+    _lastApiKey = null;
+    _lastBaseUrl = null;
+    _lastPolicy = null;
+    _rerouting = null;
     _retryTimer?.cancel();
     _retryTimer = null;
     final conn = _hubConnection;
@@ -287,10 +306,12 @@ class SignalRService {
   static String _redactUrl(String url) =>
       url.replaceAll(RegExp(r'access_token=[^&]+'), 'access_token=***');
 
-  Future<void> init(String baseUrl, {String? apiKey, bool waitForConnect = false}) async {
+  Future<void> init(String baseUrl, {String? apiKey, bool waitForConnect = false, TransportPolicy? policy}) async {
     if (_hubConnection != null) return;
 
     // Guardado para as retentativas — sem isto nao ha como refazer a conexao.
+    if (!kIsWeb && policy == null) { connectionStatus.value = "Re-pair securely"; return; }
+    _lastPolicy = policy;
     _lastBaseUrl = baseUrl;
     _lastApiKey = apiKey;
     _stopped = false;
@@ -314,22 +335,13 @@ class SignalRService {
     // Idioma das mensagens que o PC monta (erros dos botões de informação).
     hubUrl += '${hubUrl.contains('?') ? '&' : '?'}lang=${AppLanguage.current.value}';
 
-    // SignalR via WebSocket autentica pela query string (?access_token=).
-    if (apiKey != null && apiKey.isNotEmpty) {
-      final sep = hubUrl.contains('?') ? '&' : '?';
-      hubUrl += '${sep}access_token=${Uri.encodeQueryComponent(apiKey)}';
-    }
-
-    // SEGURANÇA: a chave vai na query string (?access_token=) por exigência do
-    // WebSocket do SignalR, mas NÃO deve vazar em log nem no diálogo de debug (que
-    // mostra currentUrl). Guarda/loga só a versão com a chave mascarada.
     currentUrl.value = _redactUrl(hubUrl);
     _logger.info('Connecting to SignalR Hub at ${_redactUrl(hubUrl)}');
     connectionStatus.value = "Connecting...";
 
     try {
       _hubConnection = HubConnectionBuilder()
-          .withUrl(hubUrl)
+          .withUrl(hubUrl, options: policy != null ? secureSignalROptions(policy, apiKey) : HttpConnectionOptions(accessTokenFactory: apiKey == null ? null : () async => apiKey))
           .withAutomaticReconnect(reconnectPolicy: _InfiniteRetryPolicy())
           .build();
     } catch (e) {
@@ -638,11 +650,12 @@ class SignalRService {
     return true;
   }
 
-  Future<void> updateUrl(String baseUrl, {String? apiKey}) async {
+  Future<void> updateUrl(String baseUrl, {String? apiKey, TransportPolicy? policy}) async {
     // Provider snapshots belong to this host; never seed a newly selected PC with them.
     actionStates.value = {};
     // Marca como parada deliberada para o onclose do stop() abaixo nao agendar
     // uma reconexao para a URL ANTIGA; o init() em seguida limpa a flag.
+    _generation++;
     _stopped = true;
     _retryTimer?.cancel();
     _retryTimer = null;
@@ -657,6 +670,6 @@ class SignalRService {
         await conn.stop().timeout(_stopTimeout);
       } catch (_) {}
     }
-    await init(baseUrl, apiKey: apiKey);
+    await init(baseUrl, apiKey: apiKey, policy: policy);
   }
 }

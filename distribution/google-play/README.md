@@ -1,13 +1,13 @@
 # Google Play release preparation
 
-**Status: transport blocked; not submitted.** A signed bundle is a release candidate, not permission to publish. The developer account is not registered yet. The owner selected the public publisher name **Bytetrix** and support address **contact@kavin.sh**. DeckOS and `io.github.itskavin.deckos` remain unchanged. Version 1.0.0 (10) is the first Play candidate; the package name is not reserved until Play accepts creation/upload.
+**Status: secure transport implemented; real-device migration/release gates pending; not submitted.** A signed bundle is a release candidate, not permission to publish. The owner reports that a developer account has been created; its verification, eligibility and console setup remain to be confirmed. The owner selected the public publisher name **Bytetrix** and support address **contact@kavin.sh**. DeckOS and `io.github.itskavin.deckos` remain unchanged. Version 1.0.0 (11) is the TLS implementation candidate; version 10 remains transport-blocked and must not be uploaded. No candidate is upload-ready. The package name is not reserved until Play accepts creation/upload.
 
 ## Build and signing
 
 Use Java 21 and Flutter 3.50.0. From the repository root:
 
 ```powershell
-./scripts/build-play-bundle.ps1 -VersionCode 10 -OutputDirectory C:\private-artifacts\deckos
+./scripts/build-play-bundle.ps1 -VersionCode 11 -OutputDirectory C:\private-artifacts\deckos
 ```
 
 Supply `ANDROID_KEYSTORE_PATH`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` privately to that process. Alternatively, ignored `app/android/key.properties` accepts `storeFile`, `storePassword`, `keyAlias`, `keyPassword`; a relative `storeFile` resolves from `app/android/app`. Prefer an absolute private path using forward slashes in properties files. Do not put secrets in command-line arguments, Git, issue bodies or build logs. Gradle rejects missing or partial release signing; debug signing is never a fallback. A deliberately unsigned, non-uploadable candidate requires the script's `-Unsigned` option and no signing configuration.
@@ -18,21 +18,21 @@ New-app upload key creation was coordinated with the owner through the parent ta
 
 ## Release gates
 
-1. Implement secure authenticated transport for the remote PC connection. HTTP currently carries the pairing key on API requests and the SignalR query string, as well as configuration and optional credentials. A trusted-LAN warning and removing credential fields do not secure that key. See `transport-handoff.md`.
+1. Validate the implemented secure transport on the existing real Android phone and manually updated Windows companion, preserving data. Source/loopback tests pass; they do not prove physical QR, Android Keystore, USB or LAN/firewall behavior. See `transport-handoff.md`.
 2. Update and publish the staged privacy policy only after transport behavior is final. Its current HTTP disclosure is accurate to this candidate. Keep the in-app notice, listing, policy and Data safety answers consistent.
-3. Complete Google developer-account registration, payment, identity/contact/device verification and app creation as the owner. Do not invent account details. Enroll in Play App Signing using the new app's actual choices.
+3. Confirm the owner-created developer account and complete any remaining identity/contact/device verification and app creation as the owner. Do not invent account details. Enroll in Play App Signing using the new app's actual choices.
 4. Supply complete reviewer access to the companion and the app's functions. See `reviewer-access.md`. No reviewer backend or test account is provisioned by this change.
 5. Complete App content, Data safety, target audience, IARC content rating and any declarations shown for the final merged manifest. See `data-safety.md`. These are draft answers for owner review, not submitted declarations.
 6. For a new personal developer account, fulfill the closed-testing requirement shown by the console, gather real engagement and feedback, and apply for production access. Internal testing is not a substitute. Do not promise an approval date.
 7. Rebuild after transport changes, recheck target SDK, manifest, all native libraries, bundle signatures and asset privacy, then upload to the selected test track. Run pre-launch testing and resolve findings before production review.
 
-The code makes camera hardware optional because manual pairing works without it. Phone app cloud backup and device-transfer data are excluded so saved PC pairing keys are not exported. These keys remain ordinary app-private preferences, not hardware-backed secure storage; the next transport/security phase should migrate them without resetting existing users.
+Camera hardware is optional because the full secure pairing code can be copied manually from the PC. Android credentials now use Keystore-protected encrypted storage, with endpoint/fingerprint binding and fail-closed migration. Cloud backup and device transfer remain excluded. Legacy PCs retain their IDs/caches and require one secure re-pairing.
 
 ## Store files and truthful claims
 
 `en-US/` holds the name, <=80-character short description, full description and initial candidate notes. `store-settings.json` records the owner-provided public contact. `graphics/` contains the supplied DeckOS 512px icon, a 1024x500 feature graphic, and actual sanitized app captures. See `graphics/provenance.json` for capture origins and margin-only adjustments. No personal account names, email addresses, pairing QR codes or keys are used in these graphics. AI values are actual captured source states, including unavailable states, not simulated subscription guarantees.
 
-The remote requires a PC companion. The listing does not promise native PC apps on Android or physically verified macOS/Linux desktop behavior. Integrations may require third-party accounts or licenses. There is no paid DeckOS tier, app account system, billing SDK or ad SDK in this candidate.
+The remote requires a PC companion. The listing does not promise native PC apps on Android or physically verified macOS/Linux desktop behavior. Integrations may require third-party accounts or licenses. This TLS-only candidate has no paid tier, app account system, billing SDK or ad SDK. The owner selected subscription monetization; its separate implementation/configuration must receive a new candidate and updated privacy/Data safety disclosures before release.
 
 ## Current official references (checked 24 November 2026)
 

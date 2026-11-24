@@ -65,7 +65,7 @@ namespace DeckOS.Controllers
             catch (InvalidDataException ex) { return BadRequest(new { error = L.Message(ex) }); }
 
             var stripped = 0;
-            if (!ActionPolicy.IsLocal(HttpContext.Connection))
+            if (!DeckOS.Auth.TransportBoundary.IsLocalAdmin(HttpContext))
             {
                 foreach (var b in profile.Buttons)
                 {

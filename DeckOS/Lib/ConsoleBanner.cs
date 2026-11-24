@@ -11,7 +11,7 @@ namespace DeckOS.Lib
     /// </summary>
     public static class ConsoleBanner
     {
-        public static string WebUrl => $"http://localhost:{PairingInfo.Port}/";
+        public static string WebUrl => $"http://localhost:{PairingInfo.LocalPort}/";
 
         /// <summary>QR em meio-blocos (▀▄█): cabe num terminal de 80 colunas.</summary>
         public static string AsciiQr(string text)

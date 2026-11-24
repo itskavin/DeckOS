@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Diagnostics;
 using System.IO;
 using DeckOS.Lib;
@@ -40,13 +40,11 @@ namespace DeckOS
 
             Lib.Log.DropOversizedLegacyLog();
 
-            // Bind em todas as interfaces — senão o celular na mesma rede recebe "connection
-            // refused" (Kestrel sozinho escuta só em localhost). Em dev o launchSettings já
-            // define ASPNETCORE_URLS, mas o .exe publicado não lê launchSettings, então
-            // garantimos aqui. O usuário ainda pode sobrescrever via variável de ambiente.
+            // Remote devices use TLS; HTTP is only for the same-PC configurator.
+            // Explicit URL/Kestrel settings are preserved and checked below.
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")) && !HasConfiguredUrls(args))
             {
-                Environment.SetEnvironmentVariable("ASPNETCORE_URLS", $"http://0.0.0.0:{Lib.PairingInfo.Port}");
+                Environment.SetEnvironmentVariable("ASPNETCORE_URLS", $"http://127.0.0.1:4787;https://0.0.0.0:{Lib.PairingInfo.DefaultPort}");
             }
 
             // Modo headless: sem janela/bandeja, roda apenas o servidor web.
@@ -215,6 +213,7 @@ namespace DeckOS
                 .ConfigureLogging(logging =>
                 {
                     logging.ClearProviders();
+                    logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
                     logging.AddConsole();
                     try
                     {
@@ -224,6 +223,17 @@ namespace DeckOS
                 })
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
+                    webBuilder.ConfigureKestrel((context, options) => {
+                        var configuredUrls = context.Configuration["urls"];
+                        var endpointUrls = context.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Select(e => e["Url"]);
+                        foreach (var url in (configuredUrls ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries).Concat(endpointUrls.Where(u => u != null)!))
+                        {
+                            if (url != null && url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                                (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !uri.IsLoopback))
+                                throw new InvalidOperationException("DeckOS HTTP must bind to loopback only. Use HTTPS for LAN connections (default secure port 4788), and http://127.0.0.1:4787 for the PC configurator.");
+                        }
+                        options.ConfigureHttpsDefaults(https => https.ServerCertificate = DeckOS.Auth.CompanionCertificate.Get());
+                    });
                     webBuilder.ConfigureServices((context, services) =>
                     {
                         // Atualiza PairingInfo.Port assim que o Kestrel escutar a porta real,
@@ -311,6 +321,12 @@ namespace DeckOS
                             app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", $"{appName} {version}"));
                         }
 
+                        app.Use(async (ctx, next) =>
+                        {
+                            if (!DeckOS.Auth.TransportBoundary.Allowed(ctx)) { ctx.Response.StatusCode = 403; return; }
+                            await next();
+                        });
+
                         // Idioma da resposta (Accept-Language) para L.T.
                         app.UseLanguage();
 
@@ -344,7 +360,7 @@ namespace DeckOS
                             {
                                 // Loopback que vem do adb e um celular pelo USB: qualquer app dele
                                 // alcanca o 127.0.0.1:4787 enquanto o encaminhamento existe.
-                                if (!DeckOS.Services.ActionPolicy.IsLocal(ctx.Connection))
+                                if (!DeckOS.Auth.TransportBoundary.IsLocalAdmin(ctx))
                                     return Microsoft.AspNetCore.Http.Results.StatusCode(403);
 
                                 // SEGURANÇA: bloqueia leitura por site cross-site (o navegador da

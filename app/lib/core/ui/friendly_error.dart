@@ -9,6 +9,9 @@ import '../theme/apple_typography.dart';
 /// Se o PC mandou um texto próprio ({"error": "..."}), ele vale (já vem traduzido).
 String friendlyError(Object error) {
   if (error is DioException) {
+    if (error.toString().contains('HandshakeException') || error.type == DioExceptionType.badCertificate) {
+      return tr('Cannot verify this PC. Update the PC companion, open a fresh pairing code on that PC, and try again. A changed certificate requires a new scan.');
+    }
     final data = error.response?.data;
     if (data is Map && data['error'] is String) return data['error'] as String;
     final code = error.response?.statusCode;

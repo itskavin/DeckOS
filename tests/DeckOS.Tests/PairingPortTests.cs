@@ -19,7 +19,7 @@ namespace DeckOS.Tests
         [InlineData("http://+:5200", 5200)]
         [InlineData("http://*:5300", 5300)]
         [InlineData("http://[::]:5400", 5400)]
-        [InlineData("https://localhost:5001;http://localhost:5000", 5000)]
+        [InlineData("https://localhost:5001;http://localhost:5000", 5001)]
         [InlineData("https://localhost:5001", 5001)]
         [InlineData("http://127.0.0.1:0", null)]
         [InlineData("", null)]
@@ -37,7 +37,7 @@ namespace DeckOS.Tests
 
             using var host = Program.CreateHostBuilder(new[]
             {
-                "--urls", "http://127.0.0.1:0",
+                "--urls", "http://127.0.0.1:0;https://127.0.0.1:0",
                 "--EnableDiscovery", "false",
             }).Build();
 
@@ -53,15 +53,15 @@ namespace DeckOS.Tests
                 Assert.NotEqual(PairingInfo.DefaultPort, boundPort!.Value);
 
                 Assert.Equal(boundPort.Value, PairingInfo.Port);
-                Assert.Equal($"http://localhost:{boundPort.Value}/", ConsoleBanner.WebUrl);
-                Assert.Contains($"port={boundPort.Value}", PairingInfo.BuildUri());
-                Assert.Contains($":{boundPort.Value}/?pair=", PairingInfo.BuildBrowserUrl());
+                Assert.Equal($"http://localhost:{PairingInfo.LocalPort}/", ConsoleBanner.WebUrl);
+                Assert.Contains(System.Uri.EscapeDataString($"https://{NetworkInfo.GetLanIp()}:{boundPort.Value}"), PairingInfo.BuildUri());
+                Assert.Contains($":{boundPort.Value}/#pair=", PairingInfo.BuildBrowserUrl());
 
                 using var sw = new StringWriter();
                 ConsoleBanner.Print(sw);
                 var banner = sw.ToString();
-                Assert.Contains($"http://localhost:{boundPort.Value}/", banner);
-                Assert.Contains($":{boundPort.Value}/?pair=", banner);
+                Assert.Contains($"http://localhost:{PairingInfo.LocalPort}/", banner);
+                Assert.Contains($":{boundPort.Value}/#pair=", banner);
             }
             finally
             {

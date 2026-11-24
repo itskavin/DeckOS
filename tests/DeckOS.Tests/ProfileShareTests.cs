@@ -65,8 +65,8 @@ namespace DeckOS.Tests
         [Fact]
         public async Task ImportarDeFora_TiraOAtalho()
         {
-            var client = _factory.CreateClient();
-            client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
             var profile = new DeckProfile
             {
                 Name = "Compartilhado",

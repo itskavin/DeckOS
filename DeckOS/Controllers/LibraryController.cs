@@ -85,7 +85,7 @@ namespace DeckOS.Controllers
             try { profiles = BackupService.Read(ms); }
             catch (InvalidDataException ex) { return BadRequest(new { error = L.Message(ex) }); }
 
-            if (!ActionPolicy.IsLocal(HttpContext.Connection))
+            if (!DeckOS.Auth.TransportBoundary.IsLocalAdmin(HttpContext))
             {
                 foreach (var p in profiles)
                 {
@@ -126,7 +126,7 @@ namespace DeckOS.Controllers
             catch (InvalidDataException ex) { return BadRequest(new { error = L.Message(ex) }); }
 
             var stripped = 0;
-            if (!ActionPolicy.IsLocal(HttpContext.Connection))
+            if (!DeckOS.Auth.TransportBoundary.IsLocalAdmin(HttpContext))
             {
                 foreach (var button in result.Profiles.SelectMany(p => p.Buttons))
                 {

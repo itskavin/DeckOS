@@ -130,7 +130,7 @@ class HomePageState extends State<HomePage> {
         // 401/403 = pareamento inválido: retry só falha de novo. Oferece voltar
         // ao pareamento para não prender o usuário nesta tela. Outros erros (PC
         // desligado) não bloqueiam: o deck abre com o último perfil salvo.
-        final isAuthError = err.contains('401') || err.contains('403');
+        final isAuthError = err.contains('401') || err.contains('403') || err.contains('HandshakeException') || err.contains('CERTIFICATE_VERIFY_FAILED');
         if (isAuthError) {
           return Container(
             color: AppleColors.of(context).groupedBackground,

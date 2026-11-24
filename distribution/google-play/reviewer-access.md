@@ -5,8 +5,8 @@
 Suggested instructions once a matching companion download is publicly available and verified:
 
 1. On a Windows 10/11 computer, download the DeckOS companion from the official project website. Identify the exact compatible release and executable filename in the final instructions. Current source-only or unrelated older releases are not sufficient.
-2. Run the companion. Permit the chosen private-network connection, then open its tray menu and select the device-pairing QR option.
-3. On the Android review device, open DeckOS, read the in-app setup and privacy information, and pair using that QR code or the securely verified manual-pairing procedure implemented by the transport follow-up.
+2. Run the matching TLS companion. Its same-PC configurator is http://localhost:4787 and its device connection uses HTTPS/WSS on port 4788. Permit the chosen private-network connection, then open its tray menu and select the device-pairing QR option.
+3. On the Android review device, open DeckOS, read the in-app setup and privacy information, and pair using that QR code or the complete secure pairing code copied from the physical PC (three-minute, one-use code). Legacy PC versions require an update; existing profiles/preferences are preserved.
 4. Create a new empty test profile with a harmless media button or keyboard shortcut. Confirm the action occurs on the test PC. Explore layout/theme settings and the audio page without using personal accounts.
 5. For AI Limits, add an explicitly manual source with sanitized labels or a supported test CLI/source owned by the reviewer. The app correctly displays unavailable states when no source data exists. Do not supply fake live provider quotas or hidden review-only responses.
 6. For optional integrations, provide nonpersonal test accounts/services and precise setup if required to evaluate those features. Keep secrets only in the Play App access private fields or another authorized private delivery channel, never in the public listing or this repository.

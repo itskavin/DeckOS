@@ -30,7 +30,7 @@ namespace DeckOS.Auth
             {
                 provided = header.ToString();
             }
-            else if (Request.Query.TryGetValue(ApiKeyQueryName, out var query) && query.Count > 0)
+            else if ((Request.IsHttps || TransportBoundary.IsLocalAdmin(Context)) && Request.Path == "/deckHub" && Request.Query.TryGetValue(ApiKeyQueryName, out var query) && query.Count > 0)
             {
                 // SignalR via WebSocket não envia headers customizados; usa ?access_token=
                 provided = query.ToString();
@@ -44,11 +44,12 @@ namespace DeckOS.Auth
             if (string.IsNullOrEmpty(provided))
                 return Task.FromResult(AuthenticateResult.Fail("Missing API Key"));
 
-            var expected = ApiKeyProvider.GetKey();
-            if (!FixedTimeEquals(provided, expected))
+            var deviceId = Request.IsHttps ? SecurePairing.Shared.Validate(provided) : null;
+            var localAdmin = TransportBoundary.IsLocalAdmin(Context) && FixedTimeEquals(provided, ApiKeyProvider.GetKey());
+            if (deviceId == null && !localAdmin)
                 return Task.FromResult(AuthenticateResult.Fail("Invalid API Key"));
 
-            var claims = new[] { new Claim(ClaimTypes.Name, "ApiKeyUser") };
+            var claims = new[] { new Claim(ClaimTypes.Name, deviceId ?? "LocalAdmin") };
             var identity = new ClaimsIdentity(claims, Scheme.Name);
             var principal = new ClaimsPrincipal(identity);
             var ticket = new AuthenticationTicket(principal, Scheme.Name);

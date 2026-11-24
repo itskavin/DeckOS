@@ -54,7 +54,10 @@ namespace DeckOS.Lib
             var tmp = path + ".tmp";
             try
             {
-                File.WriteAllText(tmp, Wrap(contents));
+                var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, Share = FileShare.None };
+                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                using (var file = new FileStream(tmp, options))
+                using (var writer = new StreamWriter(file)) writer.Write(Wrap(contents));
                 OwnerOnly(tmp);
                 File.Move(tmp, path, overwrite: true);
             }
@@ -88,8 +91,7 @@ namespace DeckOS.Lib
         private static void OwnerOnly(string path)
         {
             if (OperatingSystem.IsWindows()) return;
-            try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
-            catch { }
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
     }
 }

@@ -57,6 +57,9 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as output:
               output.write(f'ANDROID_KEYSTORE_PATH={path}\n')
           PY
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
       - name: Analyze and test
         working-directory: app
         run: |

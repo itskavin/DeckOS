@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:deckos/src/connection/browser_url.dart';
 import 'package:deckos/src/connection/pc_store.dart';
-import 'package:deckos/src/connection/usb_route.dart';
+import 'package:deckos/src/welcome/pairing.dart';
 import 'package:deckos/src/connection/constants.dart';
 import 'package:deckos/src/services/signalr_service.dart';
 import 'package:deckos/core/core.dart';
@@ -66,10 +66,14 @@ class SplashPageState extends State<SplashPage> {
       var rejected = false;
       if (key == null && WebMode.deck) {
         final sp = await SharedPreferences.getInstance();
-        final fromUrl = Uri.base.queryParameters['pair'];
+        final fromUrl = Uri.splitQueryString(Uri.base.fragment)['pair'];
         if (fromUrl != null && fromUrl.isNotEmpty) {
           clearPairingFromUrl();
-          await sp.setString(Constants.apiKeyKey, fromUrl);
+          try {
+            final r = await Dio(BaseOptions(followRedirects: false)).post('$origin/api/pairing/exchange',
+              data: {'token': fromUrl, 'name': 'DeckOS browser'});
+            await sp.setString(Constants.apiKeyKey, (r.data as Map)['credential'] as String);
+          } catch (_) { rejected = true; }
         }
         key = sp.getString(Constants.apiKeyKey);
         if (key != null) {
@@ -94,25 +98,16 @@ class SplashPageState extends State<SplashPage> {
       return;
     }
     // Lista de PCs pareados (migra o PC único das versões antigas).
-    await PcStore.load();
-    final sp = await SharedPreferences.getInstance();
-    final ip = sp.getString(Constants.ipAddrKey);
-    final port = sp.getString(Constants.portKey) ?? Constants.defaultPort;
-    final apiKey = sp.getString(Constants.apiKeyKey);
-
-    if (ip != null && ip.isNotEmpty && mounted) {
-      // Pelo cabo USB quando o PC responde nele; senão pela rede.
-      final baseUrl = await UsbRoute.pick('http://$ip:$port', apiKey: apiKey);
+    SavedPc? pc;
+    try { pc = await PcStore.current(); }
+    catch (_) {
       if (!mounted) return;
-
-      final client = Injector.get<DeckOSClient>();
-      client.setBaseUrl(baseUrl);
-      client.setApiKey(apiKey);
-
-      // Inicia o SignalR em segundo plano para a tela inicial abrir já com o cache local.
-      final signalR = Injector.get<SignalRService>();
-      unawaited(signalR.init(baseUrl, apiKey: apiKey));
-
+      Navigator.of(context).pushReplacementNamed('/welcome');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Secure storage is unavailable. Unlock your phone and restart DeckOS. Your saved data has been kept.'))));
+      return;
+    }
+    if (pc != null && !pc.needsRepair && mounted) {
+      await activatePc(pc);
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/home');
     } else if (mounted) {

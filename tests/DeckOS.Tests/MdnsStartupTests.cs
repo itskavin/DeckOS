@@ -52,7 +52,7 @@ namespace DeckOS.Tests
                 Assert.False(ready.IsCompleted);
                 Assert.Equal(PairingInfo.DefaultPort, PairingInfo.Port);
 
-                addresses.Addresses.Add("http://127.0.0.1:59421");
+                addresses.Addresses.Add("https://127.0.0.1:59421");
                 started.Cancel();
                 // Prazo folgado para o CI carregado; num PC normal termina na hora.
                 await ready.WaitAsync(TimeSpan.FromSeconds(20));

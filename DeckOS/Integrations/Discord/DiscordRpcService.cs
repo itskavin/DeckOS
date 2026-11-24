@@ -30,7 +30,7 @@ namespace DeckOS.Services
     /// </summary>
     public class DiscordRpcService : Integrations.IIntegration
     {
-        private static string RedirectUri => $"http://localhost:{PairingInfo.Port}/discord";
+        private static string RedirectUri => $"http://localhost:{PairingInfo.LocalPort}/discord";
         private static readonly string[] Scopes = { "rpc", "rpc.voice.read", "rpc.voice.write" };
 
         private readonly ILogger<DiscordRpcService> _logger;

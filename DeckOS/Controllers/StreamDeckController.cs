@@ -129,7 +129,7 @@ namespace DeckOS.Controllers
             }
         }
 
-        private bool IsLocalRequest => ActionPolicy.IsLocal(HttpContext.Connection);
+        private bool IsLocalRequest => DeckOS.Auth.TransportBoundary.IsLocalAdmin(HttpContext);
 
         private ObjectResult PrivilegedOnlyOnPc(string? label) => StatusCode(403, new
         {

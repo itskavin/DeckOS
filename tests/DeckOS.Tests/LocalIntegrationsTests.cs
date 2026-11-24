@@ -395,8 +395,8 @@ namespace DeckOS.Tests
 
         private async Task<List<ActionSchema>> Schemas()
         {
-            var client = _factory.CreateClient();
-            client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
             // Os textos de origem (portugues): sem cabecalho o PC responde em ingles.
             client.DefaultRequestHeaders.Add("Accept-Language", "pt-BR");
             var all = (await client.GetFromJsonAsync<List<ActionSchema>>("/api/actions/schema"))!;

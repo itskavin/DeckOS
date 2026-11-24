@@ -12,6 +12,11 @@ namespace DeckOS.Tests
     /// </summary>
     internal static class TestEnvironment
     {
+        private static readonly Lazy<string> Device = new(() => {
+            var pairing = DeckOS.Auth.SecurePairing.Shared;
+            return pairing.Exchange(pairing.IssueToken(), "isolated-test-device")!.Value.Credential;
+        });
+        public static string DeviceCredential => Device.Value;
         [ModuleInitializer]
         internal static void IsolateDataDir()
         {

@@ -70,6 +70,8 @@ namespace DeckOS.Lib
                 : null;
             var profile = new ServiceProfile(Environment.MachineName, ServiceType, (ushort)PairingInfo.Port, addresses);
             profile.AddProperty("name", Environment.MachineName);
+            profile.AddProperty("protocol", "https");
+            profile.AddProperty("pairingVersion", "2");
             profile.AddProperty("version", version);
             profile.AddProperty("id", InstanceId);
             return profile;

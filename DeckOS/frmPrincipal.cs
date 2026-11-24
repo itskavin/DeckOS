@@ -15,7 +15,7 @@ namespace DeckOS
     {
         private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string AppRunName = "DeckOS";
-        private static string WebUrl => $"http://localhost:{PairingInfo.Port}/";
+        private static string WebUrl => $"http://localhost:{PairingInfo.LocalPort}/";
 
         private ToolStripMenuItem _autoStartItem = null!;
         private ToolStripMenuItem _firewallItem = null!;

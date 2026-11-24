@@ -86,7 +86,7 @@ class _WelcomePageState extends State<WelcomePage> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (!ok) {
-      _toast(tr('Esse QR não é de pareamento do DeckOS. Use o da janela "Parear dispositivo (QR)" do PC.'));
+      _toast(pairingFailure);
       return;
     }
     _toast(tr('Pareado com sucesso!'));
@@ -126,13 +126,13 @@ class _WelcomePageState extends State<WelcomePage> {
     final ok = await connectToAddress(address);
     if (!mounted) return;
     setState(() => _busy = false);
-    if (ok) _goHome();
+    if (ok) { _goHome(); } else { _toast(pairingFailure); }
   }
 
   Future<void> _typeAddress() async {
     final address = await showAppleSheet<String>(
       context: context,
-      title: tr('Digitar o endereço'),
+      title: tr('Secure pairing code'),
       builder: (_) => const _AddressSheet(),
     );
     if (address != null && address.trim().isNotEmpty && mounted) _connect(address);
@@ -399,7 +399,7 @@ class _AddressSheetState extends State<_AddressSheet> {
             style: type.body.copyWith(
                 color: c.label, fontFeatures: const [FontFeature.tabularFigures()]),
             decoration: InputDecoration(
-              hintText: '192.168.0.10',
+              hintText: 'deckos://pair?v=2&…',
               filled: true,
               fillColor: c.tertiaryGroupedBackground,
               prefixIcon: Icon(Icons.computer_rounded, color: c.secondaryLabel),

@@ -253,13 +253,13 @@ namespace DeckOS.Lib
         /// Linux, pelo /proc; no macOS, pelo lsof. Fora do Windows, na duvida (adb rodando e
         /// sem como conferir), vale como encaminhada: e o lado seguro.
         /// </summary>
-        public static bool IsForwarded(IPAddress? remoteIp, int remotePort)
+        public static bool IsForwarded(IPAddress? remoteIp, int remotePort, int? serverPort = null)
         {
             if (remoteIp == null) return false;
             if (remoteIp.IsIPv4MappedToIPv6) remoteIp = remoteIp.MapToIPv4();
             if (!IPAddress.IsLoopback(remoteIp)) return false;
-            if (!OperatingSystem.IsWindows()) return UnixIsForwarded(remotePort);
-            var pid = OwnerOfLoopbackClient(remotePort, PairingInfo.Port);
+            if (!OperatingSystem.IsWindows()) return UnixIsForwarded(remotePort, serverPort ?? PairingInfo.Port);
+            var pid = OwnerOfLoopbackClient(remotePort, serverPort ?? PairingInfo.Port);
             if (pid is not int id) return false;
             try
             {
@@ -272,7 +272,7 @@ namespace DeckOS.Lib
             }
         }
 
-        private static bool UnixIsForwarded(int clientPort)
+        private static bool UnixIsForwarded(int clientPort, int serverPort)
         {
             // Sem adb rodando ninguem encaminha: o caso comum sai daqui, sem ler nada.
             var adb = Process.GetProcessesByName("adb");
@@ -280,7 +280,7 @@ namespace DeckOS.Lib
             {
                 if (adb.Length == 0) return false;
                 var pids = adb.Select(p => p.Id).ToList();
-                return OperatingSystem.IsLinux() ? LinuxOwnedBy(pids, clientPort) : MacOwnedBy(pids, clientPort);
+                return OperatingSystem.IsLinux() ? LinuxOwnedBy(pids, clientPort, serverPort) : MacOwnedBy(pids, clientPort);
             }
             catch
             {
@@ -311,11 +311,11 @@ namespace DeckOS.Lib
             return list;
         }
 
-        private static bool LinuxOwnedBy(List<int> adbPids, int clientPort)
+        private static bool LinuxOwnedBy(List<int> adbPids, int clientPort, int serverPort)
         {
             var inodes = new List<long>();
             foreach (var file in new[] { "/proc/net/tcp", "/proc/net/tcp6" })
-                if (File.Exists(file)) inodes.AddRange(ProcNetTcpInodes(File.ReadAllText(file), clientPort, PairingInfo.Port));
+                if (File.Exists(file)) inodes.AddRange(ProcNetTcpInodes(File.ReadAllText(file), clientPort, serverPort));
             // Conexao sumiu da tabela no meio do pedido: com adb rodando, nao arrisca.
             if (inodes.Count == 0) return true;
             var targets = inodes.Select(i => $"socket:[{i}]").ToHashSet();

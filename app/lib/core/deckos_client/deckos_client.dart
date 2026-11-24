@@ -1,4 +1,7 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:deckos/src/connection/transport_policy.dart';
+import 'package:deckos/core/web_mode.dart';
 
 import 'package:deckos/core/i18n/i18n.dart';
 import 'package:dio/dio.dart';
@@ -29,14 +32,41 @@ class SliderOfflineException implements Exception {
 }
 
 class DeckOSClient {
-  final Dio _dio;
-  final String baseUrl;
+  Dio _dio;
+  final bool _injected;
+  String get baseUrl => _dio.options.baseUrl;
+
+  void configureSecure(TransportPolicy policy, String? credential, {String? route}) {
+    final old = _dio;
+    final configured = policy.dio();
+    _dio = configured;
+    configured.options.headers['Accept-Language'] = AppLanguage.header;
+    if (route != null) configured.options.baseUrl = route;
+    setApiKey(credential);
+    configured.interceptors.add(InterceptorsWrapper(onError: (error, handler) async {
+      if (error.type != DioExceptionType.connectionError || !identical(_dio, configured) ||
+          error.requestOptions.extra['rerouted'] == true) return handler.next(error);
+      final reroute = onConnectionRefused;
+      if (reroute == null) return handler.next(error);
+      String? base;
+      try { base = await reroute(error.requestOptions.baseUrl, credential); }
+      catch (_) { return handler.next(error); }
+      if (base == null || !identical(_dio, configured) || !policy.allows(Uri.parse(base))) return handler.next(error);
+      // A failed USB request changes the next route. Only GET is automatically
+      // replayed: an action or upload may have reached the PC before the failure.
+      if (error.requestOptions.method != 'GET') return handler.next(error);
+      error.requestOptions..baseUrl = base..extra['rerouted'] = true;
+      try { handler.resolve(await configured.fetch(error.requestOptions)); }
+      on DioException catch (retry) { handler.next(retry); }
+    }));
+    old.close(force: true);
+  }
 
   DeckOSClient({
     required String baseUrl,
     Dio? dio,
   })  : _dio = dio ?? Dio(),
-        baseUrl = baseUrl {
+        _injected = dio != null {
     _dio.options
       ..baseUrl = baseUrl
       ..connectTimeout ??= const Duration(seconds: 4)
@@ -44,6 +74,13 @@ class DeckOSClient {
       ..receiveTimeout ??= const Duration(seconds: 15);
     // O PC traduz o que manda (tipos de ação, erros) pelo idioma do app.
     _dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+      if (!_injected && options.headers['X-API-KEY'] != null &&
+          !WebMode.onPcLoopback && !DemoBackend.enabled && !kIsWeb) {
+        return handler.reject(DioException(requestOptions: options, error: 'Re-pair securely'));
+      }
+      if (options.headers['X-API-KEY'] != null && options.uri.origin != Uri.parse(options.baseUrl).origin) {
+        return handler.reject(DioException(requestOptions: options, error: 'Unexpected PC endpoint'));
+      }
       options.headers['Accept-Language'] = AppLanguage.header;
       handler.next(options);
     }));

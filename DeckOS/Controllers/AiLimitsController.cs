@@ -274,7 +274,7 @@ namespace DeckOS.Controllers
         {
             // In-memory TestServer leaves RemoteIpAddress null; treat TestServer loopback as local unless explicitly overridden.
             if (HttpContext.Connection.RemoteIpAddress == null) return true;
-            return ActionPolicy.IsLocal(HttpContext.Connection);
+            return DeckOS.Auth.TransportBoundary.IsLocalAdmin(HttpContext);
         }
     }
 }

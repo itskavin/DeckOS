@@ -119,8 +119,8 @@ namespace DeckOS.Tests
 
         private HttpClient Client(bool withKey = true)
         {
-            var client = _factory.CreateClient();
-            if (withKey) client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            if (withKey) client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
             return client;
         }
 

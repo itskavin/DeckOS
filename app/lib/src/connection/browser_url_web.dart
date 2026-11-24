@@ -1,6 +1,13 @@
 import 'package:web/web.dart' as web;
 
-void clearPairingFromUrl() => clearUrlParam('pair');
+void clearPairingFromUrl() {
+  final uri = Uri.base;
+  web.window.history.replaceState(
+    null,
+    '',
+    '${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}',
+  );
+}
 
 /// Tira um parâmetro da barra de endereço (sem recarregar a página).
 void clearUrlParam(String name) {

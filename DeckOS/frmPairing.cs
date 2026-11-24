@@ -30,7 +30,7 @@ namespace DeckOS
             ClientSize = new Size(360, 528);
 
             var ip = NetworkInfo.GetLanIp();
-            var key = ApiKeyProvider.GetKey();
+            var secureCode = PairingInfo.BuildUri();
 
             _appMode = new RadioButton
             {
@@ -76,12 +76,12 @@ namespace DeckOS
 
             var details = new TextBox
             {
-                Text = L.Ui("IP: {ip}    Chave: {key}", ("ip", $"{ip}:{PairingInfo.Port}"), ("key", key)),
+                Text = secureCode,
                 Location = new Point(10, 432),
                 Size = new Size(340, 44),
                 Multiline = true,
                 ReadOnly = true,
-                BorderStyle = BorderStyle.None,
+                BorderStyle = BorderStyle.FixedSingle,
                 BackColor = SystemColors.Control,
                 TextAlign = HorizontalAlignment.Center,
             };
@@ -111,13 +111,13 @@ namespace DeckOS
         {
             if (_appMode.Checked)
             {
-                _info.Text = L.Ui("No app DeckOS, vá em Configurar → Parear (QR)\ne escaneie este código para conectar com segurança.");
+                _info.Text = L.Ui("Scan or copy this code into DeckOS on your phone.\nPrivate, one use, expires after 3 minutes. Reopen for a new code.");
                 _url.Visible = false;
-                SetQr(PairingInfo.BuildUri());
+                SetQr(Controls.OfType<TextBox>().First().Text);
             }
             else
             {
-                _info.Text = L.Ui("Aponte a câmera do iPhone, iPad ou tablet para este código:\no deck abre no navegador, sem instalar nada.");
+                _info.Text = L.Ui("Browser HTTPS needs a certificate trusted by that browser.\nUse the Android app for secure QR pairing.");
                 _url.Text = L.Ui("Copiar o endereço (para abrir em outro PC)");
                 _url.Visible = true;
                 SetQr(PairingInfo.BuildBrowserUrl());

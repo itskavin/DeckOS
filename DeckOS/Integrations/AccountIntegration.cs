@@ -187,7 +187,7 @@ namespace DeckOS.Integrations
             catch { }
         }
 
-        public static string RedirectUriFor(string name) => $"http://127.0.0.1:{PairingInfo.Port}/api/integrations/{name}/callback";
+        public static string RedirectUriFor(string name) => $"http://127.0.0.1:{PairingInfo.LocalPort}/api/integrations/{name}/callback";
 
         /// <summary>Pagina simples de retorno do login. Titulo e texto sao escapados: o erro vem da URL.</summary>
         protected static string Html(string title, string body)

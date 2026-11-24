@@ -1267,8 +1267,8 @@ namespace DeckOS.Tests
 
         private async Task<List<ActionSchema>> Schemas()
         {
-            var client = _factory.CreateClient();
-            client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
             client.DefaultRequestHeaders.Add("Accept-Language", "pt-BR");
             var all = (await client.GetFromJsonAsync<List<ActionSchema>>("/api/actions/schema"))!;
             return all.Where(s => Types.Contains(s.Type) || s.Type == "voicemeeter").ToList();
@@ -1312,8 +1312,8 @@ namespace DeckOS.Tests
         [Fact]
         public async Task Tally_ListaEEstado_ComOSinalManual()
         {
-            var client = _factory.CreateClient();
-            client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
             var targets = (await client.GetFromJsonAsync<List<FieldOption>>("/api/tally/targets"))!;
             Assert.Contains(targets, t => t.Value == TallyService.ManualId);
 
@@ -1324,7 +1324,7 @@ namespace DeckOS.Tests
         [Fact]
         public async Task Tally_SemChave_Recusa()
         {
-            var client = _factory.CreateClient();
+            var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
             var response = await client.GetAsync("/api/tally/targets");
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }

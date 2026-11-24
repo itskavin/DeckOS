@@ -132,15 +132,15 @@ namespace DeckOS.Tests
         [Fact]
         public void RedirectUriFor_ReflectsBoundPort()
         {
-            var previous = PairingInfo.Port;
+            var previous = PairingInfo.LocalPort;
             try
             {
-                PairingInfo.SetPort(5512);
+                PairingInfo.UseBoundAddresses(new[] { "http://127.0.0.1:5512" });
                 Assert.Equal("http://127.0.0.1:5512/api/integrations/spotify/callback", AccountIntegration.RedirectUriFor("spotify"));
             }
             finally
             {
-                PairingInfo.SetPort(previous);
+                PairingInfo.UseBoundAddresses(new[] { $"http://127.0.0.1:{previous}" });
             }
         }
 
@@ -248,8 +248,8 @@ namespace DeckOS.Tests
 
         private HttpClient Client()
         {
-            var c = _factory.CreateClient();
-            c.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var c = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            c.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
             return c;
         }
 

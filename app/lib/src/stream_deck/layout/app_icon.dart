@@ -14,7 +14,7 @@ class AppIconCache {
   static final _bytes = <String, Future<Uint8List?>>{};
 
   static Future<Uint8List?> of(InstalledApp app) =>
-      _bytes[app.id] ??= Injector.get<DeckOSClient>().getAppIcon(app);
+      _bytes['${Injector.get<DeckOSClient>().currentBaseUrl}:${app.id}'] ??= Injector.get<DeckOSClient>().getAppIcon(app);
 
   static bool isPng(Uint8List b) =>
       b.length > 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47;

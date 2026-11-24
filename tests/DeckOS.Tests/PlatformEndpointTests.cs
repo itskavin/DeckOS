@@ -37,8 +37,8 @@ namespace DeckOS.Tests
 
         private HttpClient Client(bool key = true)
         {
-            var client = _factory.CreateClient();
-            if (key) client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            if (key) client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
             return client;
         }
 
@@ -94,8 +94,8 @@ namespace DeckOS.Tests
                 {
                     ["EnableDiscovery"] = "false",
                 })));
-            var client = factory.CreateClient();
-            client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var client = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
 
             var json = await client.GetStringAsync("/api/platform");
             using var doc = JsonDocument.Parse(json);
@@ -123,8 +123,8 @@ namespace DeckOS.Tests
                     if (mdns != null) s.Remove(mdns);
                 });
             });
-            var client = factory.CreateClient();
-            client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+            var client = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+            client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
 
             var json = await client.GetStringAsync("/api/platform");
             using var doc = JsonDocument.Parse(json);

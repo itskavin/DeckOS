@@ -44,8 +44,8 @@ public class ActionFailureTests
     {
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
             b.ConfigureTestServices(s => s.AddSingleton<IActionProvider, FailingProvider>()));
-        using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-API-KEY", ApiKeyProvider.GetKey());
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new System.Uri("https://localhost") });
+        client.DefaultRequestHeaders.Add("X-API-KEY", TestEnvironment.DeviceCredential);
         var action = new DeckAction { Type = "test_failure" };
         var profile = new DeckProfile { Id = "failure_" + Guid.NewGuid().ToString("N") };
         profile.Buttons.Add(new DeckButton { Id = "fail", Action = action });

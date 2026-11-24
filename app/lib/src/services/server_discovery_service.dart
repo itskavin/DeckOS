@@ -160,14 +160,14 @@ class ServerDiscoveryService {
       if (datagram == null) return;
       try {
         final response = utf8.decode(datagram.data);
-        debugPrint(
-            'Discovery: Received response: $response from ${datagram.address}');
+        // Discovery is untrusted metadata. Never log arbitrary broadcast payloads.
         final json = jsonDecode(response) as Map<String, dynamic>;
         final ip = json['ip'];
         if (ip is String && ip.isNotEmpty) {
           add(DiscoveredServer(
             ip: ip,
             source: 'udp',
+            port: json['port'] is num ? (json['port'] as num).toInt() : null,
             name: json['name'] as String?,
             id: json['id'] as String?,
           ));

@@ -250,6 +250,10 @@ jobs:
               output.write(f'ANDROID_KEYSTORE_PATH={path}\n')
           PY
 
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Build do APK
         working-directory: app
         run: |

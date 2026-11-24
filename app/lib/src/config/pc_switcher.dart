@@ -1,17 +1,19 @@
 import 'package:deckos/core/core.dart';
-import 'package:deckos/src/connection/usb_route.dart';
-import 'package:deckos/src/connection/pc_store.dart';
+import 'package:deckos/src/welcome/pairing.dart';
 import 'package:deckos/src/services/signalr_service.dart';
+import 'package:deckos/src/connection/pc_store.dart';
 import 'package:flutter/material.dart';
 
 /// Troca o PC em uso e reabre o app nele (deck, catálogo e estados vêm do novo PC).
 Future<void> switchToPc(BuildContext context, SavedPc pc) async {
   await PcStore.select(pc);
-  final baseUrl = await UsbRoute.pick(pc.baseUrl, apiKey: pc.apiKey);
-  final client = Injector.get<DeckOSClient>();
-  client.setBaseUrl(baseUrl);
-  client.setApiKey(pc.apiKey);
-  await Injector.get<SignalRService>().updateUrl(baseUrl, apiKey: pc.apiKey);
+  if (pc.needsRepair) {
+    await Injector.get<SignalRService>().dispose();
+    Injector.get<DeckOSClient>().setApiKey(null);
+    if (context.mounted) Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (_) => false);
+    return;
+  }
+  await activatePc(pc);
   if (context.mounted) {
     Navigator.of(context).pushNamedAndRemoveUntil('/home', (_) => false);
   }
@@ -21,13 +23,10 @@ Future<void> switchToPc(BuildContext context, SavedPc pc) async {
 Future<void> fetchPcName(SavedPc pc) async {
   if (pc.name != pc.ip && pc.name != 'PC') return;
   try {
-    final r = await Dio(
-      BaseOptions(
-        connectTimeout: const Duration(seconds: 3),
-        receiveTimeout: const Duration(seconds: 3),
-        headers: {if (pc.apiKey != null) 'X-API-Key': pc.apiKey},
-      ),
-    ).get('${pc.baseUrl}/api/system/info');
+    if (pc.needsRepair) return;
+    final dio = pc.policy.dio();
+    final r = await dio.get('/api/system/info', options: Options(headers: {'X-API-KEY': pc.apiKey}));
+    dio.close(force: true);
     final name = (r.data is Map) ? r.data['name'] as String? : null;
     if (name != null && name.isNotEmpty) await PcStore.rename(pc.id, name);
   } catch (_) {}
@@ -73,7 +72,7 @@ class _PcMenuButtonState extends State<PcMenuButton> {
                 color: pc.id == PcStore.currentId ? c.accent : c.gray,
               ),
               title: Text(pc.name),
-              subtitle: Text(pc.ip),
+              subtitle: Text(pc.needsRepair ? tr('Re-pair securely') : pc.ip),
               trailing: pc.id == PcStore.currentId
                   ? Icon(
                       Icons.check_rounded,

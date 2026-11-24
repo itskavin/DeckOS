@@ -22,7 +22,9 @@ import 'pc_info.dart';
 import 'qr_scan_page.dart';
 import 'settings_kit.dart';
 import 'privacy_notice_page.dart';
+import 'paired_devices_page.dart';
 import '../welcome/welcome_page.dart';
+import '../welcome/pairing.dart';
 
 const _repoUrl = 'https://github.com/itskavin/DeckOS';
 
@@ -56,7 +58,9 @@ class ConfigPageState extends State<ConfigPage> {
 
   Future<void> _loadIP() async {
     final prefs = await SharedPreferences.getInstance();
-    var pcs = await PcStore.load();
+    List<SavedPc> pcs;
+    try { pcs = await PcStore.load(); }
+    catch (_) { if (mounted) _snack(tr('Secure storage is unavailable. Unlock your phone and restart DeckOS. Your saved data has been kept.')); return; }
     // PC migrado da versão antiga ainda sem nome: pergunta ao PC em uso.
     final current = pcs.where((p) => p.id == PcStore.currentId).firstOrNull;
     if (current != null &&
@@ -68,7 +72,7 @@ class ConfigPageState extends State<ConfigPage> {
     setState(() {
       _pcs = pcs;
       _ipController.text = prefs.getString(Constants.ipAddrKey) ?? '';
-      _keyController.text = prefs.getString(Constants.apiKeyKey) ?? '';
+      _keyController.text = ''; // Credentials are never displayed or stored in plain preferences.
     });
   }
 
@@ -176,6 +180,10 @@ class ConfigPageState extends State<ConfigPage> {
     if (ok != true) return;
     final wasCurrent = pc.id == PcStore.currentId;
     await PcStore.remove(pc.id);
+    if (wasCurrent) {
+      await Injector.get<SignalRService>().dispose();
+      Injector.get<DeckOSClient>().setApiKey(null);
+    }
     final next = await PcStore.current();
     if (!mounted) return;
     if (wasCurrent && next != null) {
@@ -209,7 +217,7 @@ class ConfigPageState extends State<ConfigPage> {
                         color: pc.id == PcStore.currentId ? c.accent : c.gray,
                       ),
                       title: pc.name,
-                      subtitle: '${pc.ip}:${pc.port}',
+                      subtitle: pc.needsRepair ? tr('Re-pair securely') : pc.baseUrl,
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -315,114 +323,20 @@ class ConfigPageState extends State<ConfigPage> {
   }
 
   Future<void> _saveAndGoBack() async {
-    var ip = _ipController.text.trim();
-    if (ip.isEmpty) {
-      _snack(tr('Por favor insira um IP válido'));
-      return;
-    }
-
-    // Basic Sanitization
-    ip = ip.replaceAll('http://', '').replaceAll('https://', '');
-    if (ip.endsWith('/')) ip = ip.substring(0, ip.length - 1);
-
-    // Check for port
-    String baseUrl;
-    String port;
-    if (ip.contains(':')) {
-      // User provided port
-      baseUrl = 'http://$ip';
-      port = ip.substring(ip.indexOf(':') + 1);
-    } else {
-      // Default port
-      port = Constants.defaultPort;
-      baseUrl = 'http://$ip:$port';
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(Constants.ipAddrKey, ip); // Save raw IP for UI
-    await prefs.setString(
-      Constants.portKey,
-      port,
-    ); // persiste a porta p/ o splash
-    final typedKey = _keyController.text.trim();
-    if (typedKey.isNotEmpty) {
-      await prefs.setString(Constants.apiKeyKey, typedKey);
-    }
-    final apiKey = typedKey.isNotEmpty
-        ? typedKey
-        : prefs.getString(
-            Constants.apiKeyKey,
-          ); // mantém a chave do pareamento se o campo ficar vazio
-    final host = ip.contains(':') ? ip.substring(0, ip.indexOf(':')) : ip;
-    final pc = await PcStore.upsert(ip: host, port: port, apiKey: apiKey);
-    fetchPcName(pc);
-
-    // Pelo cabo USB quando o PC responde nele; senão pela rede.
-    final resolvedUrl = await UsbRoute.pick(baseUrl, apiKey: apiKey);
-
-    // Update Singletons immediately
-    final client = Injector.get<DeckOSClient>();
-    client.setBaseUrl(resolvedUrl);
-    client.setApiKey(apiKey);
-
-    final signalR = Injector.get<SignalRService>();
-    await signalR.updateUrl(
-      resolvedUrl,
-      apiKey: apiKey,
-    ); // Use local resolvedUrl, not client.baseUrl
-
-    if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/home');
-    }
+    final ok = await connectToAddress(_ipController.text.trim());
+    if (!mounted) return;
+    if (!ok) { _snack(pairingFailure); return; }
+    Navigator.of(context).pushReplacementNamed('/home');
   }
 
   Future<void> _pairWithQr() async {
-    final result = await Navigator.of(
-      context,
-    ).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
+    final result = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
     if (result == null || !mounted) return;
-
-    final uri = Uri.tryParse(result);
-    final ip = uri?.queryParameters['ip'];
-    final port = uri?.queryParameters['port'] ?? Constants.defaultPort;
-    final key = uri?.queryParameters['key'];
-
-    if (uri == null ||
-        uri.scheme != 'deckos' ||
-        ip == null ||
-        ip.isEmpty ||
-        key == null ||
-        key.isEmpty) {
-      _snack(
-        tr(
-          'Esse QR não é de pareamento do DeckOS. Use o da janela "Parear dispositivo (QR)" do PC.',
-        ),
-      );
-      return;
-    }
-
-    final baseUrl = 'http://$ip:$port';
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(Constants.ipAddrKey, ip);
-    await prefs.setString(
-      Constants.portKey,
-      port,
-    ); // persiste a porta p/ o splash
-    await prefs.setString(Constants.apiKeyKey, key);
-    // Parear com outro PC acrescenta à lista; o mesmo IP atualiza a chave.
-    final pc = await PcStore.upsert(ip: ip, port: port, apiKey: key);
-    await fetchPcName(pc);
-
-    final client = Injector.get<DeckOSClient>();
-    client.setBaseUrl(baseUrl);
-    client.setApiKey(key);
-    final signalR = Injector.get<SignalRService>();
-    await signalR.updateUrl(baseUrl, apiKey: key);
-
-    if (mounted) {
-      _snack(tr('Pareado com sucesso!'));
-      Navigator.of(context).pushReplacementNamed('/home');
-    }
+    final ok = await pairWithQr(result);
+    if (!mounted) return;
+    if (!ok) { _snack(pairingFailure); return; }
+    _snack(tr('Pareado com sucesso!'));
+    Navigator.of(context).pushReplacementNamed('/home');
   }
 
   /// Deck no navegador: esquece a chave e volta ao pareamento.
@@ -659,6 +573,9 @@ class ConfigPageState extends State<ConfigPage> {
         ),
       ]),
       _Section(tr('Conexão'), null, [
+        if (WebMode.onPcLoopback)
+          _row(title: tr('Paired devices'), icon: Icons.verified_user_rounded,
+            color: c.blue, keywords: 'pair revoke security', onTap: () => _push(const PairedDevicesPage())),
         if (kIsWeb)
           _row(
             title: tr('Esquecer'),
@@ -1047,19 +964,15 @@ class _ManualPcSheetState extends State<_ManualPcSheet> {
       padding: const EdgeInsets.only(top: AppleSpacing.xs),
       children: [
         InsetGroupedSection(
-          footer: tr('O texto depois de "Chave:" na janela de pareamento do PC.'),
+          footer: tr('Copy the complete secure pairing code from the PC. It expires after 3 minutes.'),
           children: [
             FormTextRow(
-              label: tr('IP do Servidor'),
+              label: tr('Secure pairing code'),
               controller: widget.controller,
-              hint: '192.168.x.x',
+              hint: 'deckos://pair?v=2&…',
               keyboardType: TextInputType.url,
             ),
-            FormTextRow(
-              label: tr('Chave'),
-              controller: widget.keyController,
-              hint: tr('Opcional'),
-            ),
+
           ],
         ),
         if (_banner != null)

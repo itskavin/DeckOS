@@ -37,15 +37,23 @@ class _BrowserPairPageState extends State<BrowserPairPage> {
   }
 
   Future<void> _useKey() async {
-    final key = _key.text.trim();
+    var key = _key.text.trim();
+    final code = Uri.tryParse(key);
+    if (code?.scheme == 'deckos') key = code!.queryParameters['token'] ?? '';
     if (key.isEmpty) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     final client = Injector.get<DeckOSClient>();
-    client.setApiKey(key);
-    if (!await client.checkKey()) {
+    String? credential;
+    try {
+      final r = await Dio(BaseOptions(followRedirects: false)).post('${Uri.base.origin}/api/pairing/exchange',
+        data: {'token': key, 'name': 'DeckOS browser'});
+      credential = (r.data as Map)['credential'] as String;
+    } catch (_) {}
+    client.setApiKey(credential);
+    if (credential == null || !await client.checkKey()) {
       if (mounted) {
         setState(() {
           _busy = false;
@@ -54,7 +62,7 @@ class _BrowserPairPageState extends State<BrowserPairPage> {
       }
       return;
     }
-    await (await SharedPreferences.getInstance()).setString(Constants.apiKeyKey, key);
+    await (await SharedPreferences.getInstance()).setString(Constants.apiKeyKey, credential);
     if (!mounted) return;
     // O splash refaz a conexão (SignalR) com a chave nova.
     Navigator.of(context).pushReplacementNamed('/');
@@ -101,7 +109,7 @@ class _BrowserPairPageState extends State<BrowserPairPage> {
                     enableSuggestions: false,
                     style: type.body.copyWith(color: c.label),
                     decoration: InputDecoration(
-                      hintText: tr('Chave'),
+                      hintText: tr('Secure pairing code'),
                       filled: true,
                       fillColor: c.secondaryGroupedBackground,
                       prefixIcon: Icon(Icons.lock_outline_rounded, color: c.secondaryLabel, size: 18),

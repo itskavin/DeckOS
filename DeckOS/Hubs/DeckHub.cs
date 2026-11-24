@@ -27,6 +27,9 @@ namespace DeckOS.Hubs
         public override async Task OnConnectedAsync()
         {
             Interlocked.Increment(ref _connectedCount);
+            var device = Context.User?.Identity?.Name;
+            if (device != null && device != "LocalAdmin")
+                Context.Items["credentialRevocation"] = Auth.SecurePairing.Shared.Revocation(device).Register(Context.Abort);
             // Idioma da conexao: ?lang= (o app manda) ou o Accept-Language (navegador).
             var http = Context.GetHttpContext();
             var language = http?.Request.Query["lang"].ToString() is { Length: > 0 } q
@@ -104,7 +107,7 @@ namespace DeckOS.Hubs
                 return;
             var conn = Context.GetHttpContext()?.Connection;
             var ip = conn?.RemoteIpAddress;
-            var isLoopback = Services.ActionPolicy.IsLocal(ip);
+            var isLoopback = Context.GetHttpContext() is { } httpContext && Auth.TransportBoundary.IsLocalAdmin(httpContext);
             var isUsbForwarded = isLoopback && conn != null && Lib.UsbBridge.IsForwarded(ip, conn.RemotePort);
             var snapshot = clients.Register(Context.ConnectionId, registration, isLoopback, isUsbForwarded);
             await Clients.All.SendAsync(ConnectedClientsEvent, snapshot);
@@ -202,6 +205,7 @@ namespace DeckOS.Hubs
 
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
+            if (Context.Items.Remove("credentialRevocation", out var registration) && registration is IDisposable disposable) disposable.Dispose();
             // Celular que caiu com o dedo numa tecla: solta so as dele.
             Lib.Input.HeldKeys.Shared.ReleaseOwner(Context.ConnectionId);
             MicHold?.ReleaseOwner(Context.ConnectionId);

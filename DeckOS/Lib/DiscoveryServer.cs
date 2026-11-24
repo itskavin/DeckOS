@@ -58,7 +58,7 @@ namespace DeckOS.Lib
                             // Serializa de verdade pra escapar aspas/barras em MachineName.
                             // Inclui o id da instalacao para o app juntar UDP e mDNS sem duplicar o PC.
                             string responseMessage = System.Text.Json.JsonSerializer.Serialize(
-                                new { ip = ipAddress, name = computerName, id = MdnsAdvertiser.InstanceId });
+                                new { ip = ipAddress, name = computerName, id = MdnsAdvertiser.InstanceId, port = PairingInfo.Port, protocol = "https", pairingVersion = 2 });
                             byte[] sendBytes = Encoding.UTF8.GetBytes(responseMessage);
                             await udpServer.SendAsync(sendBytes, sendBytes.Length, result.RemoteEndPoint);
                             _logger.LogDebug("[Discovery] Resposta enviada para {Remote}", result.RemoteEndPoint);
