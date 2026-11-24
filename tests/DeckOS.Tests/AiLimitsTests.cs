@@ -713,6 +713,7 @@ namespace DeckOS.Tests
     {
         private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "deckos-ailimits-http-" + Guid.NewGuid().ToString("N"));
         private readonly WebApplicationFactory<DeckOS.Program> _factory;
+        private DateTimeOffset _now = new(2026, 11, 23, 12, 0, 0, TimeSpan.Zero);
 
         private sealed class StaticEnvDetector : IAiLimitsEnvironmentDetector
         {
@@ -753,6 +754,9 @@ namespace DeckOS.Tests
                 services.AddSingleton(_ => new AiLimitsConfigStore(_tempDir));
                 services.AddSingleton<IAiLimitsEnvironmentDetector, StaticEnvDetector>();
                 services.AddSingleton<ICodexAppServerRunner, NoOpCodexRunner>();
+                // CI may take longer than the cooldown to finish a request. Control service
+                // time so the HTTP assertions cover the cooldown independently of runner speed.
+                services.AddSingleton<Func<DateTimeOffset>>(_ => () => _now);
             }));
         }
 
@@ -809,6 +813,11 @@ namespace DeckOS.Tests
             Assert.True(ref2.Headers.Contains("Retry-After"));
             using var ref2Doc = JsonDocument.Parse(await ref2.Content.ReadAsStringAsync());
             Assert.Equal(AiLimitsErrorCodes.CooldownActive, ref2Doc.RootElement.GetProperty("errorCode").GetString());
+
+            // Once the cooldown expires, refresh is allowed again.
+            _now = _now.Add(ref2.Headers.RetryAfter!.Delta!.Value);
+            var ref3 = await client.PostAsync("/api/ai-limits/refresh", new StringContent("{}", Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.OK, ref3.StatusCode);
 
             // Delete source locally -> 200
             var delResp = await client.DeleteAsync($"/api/ai-limits/sources/{sourceId}");
