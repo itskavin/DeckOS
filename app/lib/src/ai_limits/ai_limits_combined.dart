@@ -116,7 +116,9 @@ class AiLimitsCombinedBody extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    for (final provider in providers.keys.take(4))
+                    for (final provider in providers.keys.take(
+                      math.max(1, (size.maxWidth / 24).floor()).clamp(1, 4),
+                    ))
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 3),
                         child: AiProviderIcon(
