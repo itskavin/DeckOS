@@ -9,10 +9,12 @@ import 'src/home/home_page.dart';
 import 'src/config/config_page.dart';
 import 'src/config/keep_awake.dart';
 import 'src/welcome/welcome_page.dart';
+import 'src/ai_limits/ai_provider_licenses.dart';
 
 Future<void> main() async {
   final sw = kDebugMode ? (Stopwatch()..start()) : null;
   WidgetsFlutterBinding.ensureInitialized();
+  registerAiProviderLicenses();
   KeepAwake.ensureInitialized();
   // Carrega tema, idioma, preferência de tela ligada e PCs em paralelo antes do
   // primeiro frame. O canal nativo do wake lock roda após o primeiro frame para não
