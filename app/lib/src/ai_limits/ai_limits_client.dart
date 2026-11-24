@@ -40,6 +40,15 @@ class AiLimitsClient {
     }
   }
 
+  Future<AiLimitsSnapshot> updatePrivacy(bool hideAccountNames) async {
+    try {
+      final raw = await _putJson('$_base/privacy', {'hideAccountNames': hideAccountNames});
+      return AiLimitsSnapshot.fromJson(Map<String, dynamic>.from(raw as Map));
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
   Future<AiLimitsSourceTestResult> testSource(AiLimitsSourceDraft draft) async {
     try {
       final raw = await _postJson('$_base/sources/test', draft.toTestJson());

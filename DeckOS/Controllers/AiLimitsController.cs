@@ -13,7 +13,7 @@ namespace DeckOS.Controllers
     /// <summary>
     /// Normalized AI subscription limits API (/api/ai-limits).
     /// Protected by DeckOS's fallback ApiKey authentication policy; never echoes secrets,
-    /// raw emails, auth filenames, or upstream tokens.
+    /// auth filenames or upstream tokens. Display names respect the shared privacy setting.
     /// </summary>
     [Route("api/ai-limits")]
     [ApiController]
@@ -147,6 +147,13 @@ namespace DeckOS.Controllers
             return Ok(outcome.Snapshot);
         }
 
+        [HttpPut("privacy")]
+        public async Task<ActionResult> UpdatePrivacy([FromBody] AiLimitsPrivacyUpdateRequest? req, CancellationToken ct)
+        {
+            if (req == null) return BadRequest(new { message = "Request body is required." });
+            return Ok(await _service.UpdatePrivacyAsync(req.HideAccountNames, ct));
+        }
+
         [HttpGet("accounts")]
         public async Task<ActionResult> ListAccounts(CancellationToken ct)
         {
@@ -164,6 +171,8 @@ namespace DeckOS.Controllers
             if (!string.IsNullOrWhiteSpace(req.DashboardUrl) && AiLimitsUrlValidator.ValidateDashboardUrl(req.DashboardUrl) == null)
                 return BadRequest(new { errorCode = AiLimitsErrorCodes.InvalidUrl, message = "Dashboard URL must be a valid https:// URL." });
 
+            try { AiAccountDisplay.ValidateAlias(req.Alias); }
+            catch (ArgumentException) { return BadRequest(new { message = "Alias must be at most 60 characters and contain no control or direction characters." }); }
             var (account, snapshot) = await _service.UpdateAccountAsync(accountId, req, ct);
             if (account == null) return NotFound();
             return Ok(new { account, snapshot });

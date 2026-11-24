@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/deck_theme.dart';
 import '../deck_squircle_tile.dart';
+import '../tile_shape.dart';
 
 /// Moldura de um botão do deck, no estilo do tema atual. O conteúdo (ícone,
 /// rótulo) herda a cor certa via IconTheme/DefaultTextStyle — leia com
@@ -63,10 +64,10 @@ class DeckTile extends StatelessWidget {
         final fill = active ? on : (color ?? deck.tileColor);
         fg = fill.computeLuminance() > 0.55 ? Colors.black87 : Colors.white;
         tile = Container(
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: fill,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
+            shape: DeckTileShapeScope.border(context, RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            shadows: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.3),
                 blurRadius: 4,
@@ -86,13 +87,12 @@ class DeckTile extends StatelessWidget {
             ? deck.foreground
             : (accent != null ? tint : deck.foreground);
         tile = Container(
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: Color.alphaBlend(
               tint.withValues(alpha: active ? 0.35 : 0.08),
               deck.tileColor,
             ),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: tint, width: 2),
+            shape: DeckTileShapeScope.border(context, RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: tint, width: 2)), side: BorderSide(color: tint, width: 2)),
           ),
           clipBehavior: Clip.antiAlias,
           child: _content(fg, const EdgeInsets.all(4)),
@@ -117,7 +117,7 @@ class DeckTile extends StatelessWidget {
                     : deck.tileColor,
                 innerStroke: active ? activeTint : deck.outline,
                 corner: active ? activeTint : tint,
-                radius: _FramePainter.outerRadius(side),
+                radius: DeckTileShapeScope.radius(context, _FramePainter.outerRadius(side)),
               ),
               child: _content(fg, EdgeInsets.all(side * 0.12)),
             );

@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:deckos/core/core.dart';
 import 'package:deckos/src/services/signalr_service.dart';
+import '../connection/pc_store.dart';
 import 'package:deckos/src/stream_deck/layout/grid_placement.dart';
 import 'package:deckos/src/stream_deck/layout/slot_ops.dart';
 
 import 'ai_limits_client.dart';
+import 'ai_account_privacy.dart';
 import 'ai_limits_models.dart';
 import 'ai_provider_style.dart';
 
@@ -55,6 +57,7 @@ class AiLimitsStore {
     if (identity != _connectionIdentity) {
       dispose();
       _connectionIdentity = identity;
+      AiAccountPrivacy.hideNames.value = true;
       snapshot.value = null;
       error.value = null;
       lastNotice.value = null;
@@ -114,6 +117,7 @@ class AiLimitsStore {
   }
 
   void _applySnapshot(AiLimitsSnapshot next) {
+    AiAccountPrivacy.hideNames.value = next.hideAccountNames;
     snapshot.value = next;
     cooldownUntil.value = next.refresh.nextRefreshAllowedAt;
     isRefreshing.value = next.refresh.isRefreshing;
@@ -270,6 +274,12 @@ class AiLimitsStore {
     return res.account;
   }
 
+  Future<void> updatePrivacy(bool hideAccountNames) async {
+    final next = await _client.updatePrivacy(hideAccountNames);
+    _applySnapshot(next);
+    error.value = null;
+  }
+
   Future<void> removeAccount(String accountId) async {
     final snap = await _client.removeAccount(accountId);
     _applySnapshot(snap);
@@ -315,7 +325,8 @@ class AiLimitsStore {
       accountId: account.id,
       sourceId: account.sourceId,
       providerHint: account.provider,
-      aliasHint: account.alias,
+      // Profiles/backups must not persist provider-reported personal names.
+      aliasHint: account.defaultAlias,
       displayMode: displayMode,
       windows: windows,
       showReset: showReset,
@@ -410,6 +421,31 @@ class AiLimitsStore {
     );
     await api.saveProfile(updated);
     return (profile: updated, added: added);
+  }
+
+  /// Add an overview page without modifying existing tiles or page layouts.
+  static Future<DeckProfile> addCombinedAccountsPage(List<AiLimitsAccount> accounts, {DeckOSClient? client}) async {
+    final api = client ?? Injector.get<DeckOSClient>();
+    final identity = (api, api.currentBaseUrl, PcStore.currentId);
+    final profiles = await api.getProfiles();
+    final layout = await api.getLayout();
+    if (identity != (api, api.currentBaseUrl, PcStore.currentId)) {
+      throw AiLimitsApiException(tr('O PC ativo mudou. Nada foi enviado; abra esta tela de novo no PC certo.'));
+    }
+    final existing = profiles.where((p) => p.id == 'ai_overview').firstOrNull;
+    if (existing != null && existing.buttons.any((b) => b.dynamicType == aiLimitsDynamicType && AiLimitsTileConfig.fromParams(b.dynamicParameters).combined)) return existing;
+    final cols = ((layout?['columns'] as num?)?.toInt() ?? 4).clamp(2, 10);
+    final profile = DeckProfile(
+      id: existing == null ? 'ai_overview' : 'ai_overview_${DateTime.now().millisecondsSinceEpoch}',
+      name: tr('Visão geral de IA'), columns: cols, rows: 3, customColumns: cols, customRows: 3,
+      buttons: [DeckButton(
+        id: 'ai_combined_${DateTime.now().microsecondsSinceEpoch}', row: 0, column: 0,
+        columnSpan: cols, rowSpan: 3, dynamicType: aiLimitsDynamicType,
+        dynamicParameters: AiLimitsTileConfig(combined: true, accountIds: accounts.map((a) => a.id).toSet().toList()).toParams(),
+      )],
+    );
+    await api.saveProfile(profile);
+    return profile;
   }
 
   static ({int row, int column, int colSpan}) _findSlotForSpan(

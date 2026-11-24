@@ -183,6 +183,9 @@ String? formatObservedAge(DateTime? observedAt, {DateTime? now}) {
 class AiLimitsTileConfig {
   /// Opaque backend account identifier (e.g. "acct_...").
   final String accountId;
+  final bool combined;
+  final bool allAccounts;
+  final List<String> accountIds;
 
   /// Optional opaque source identifier for repair/lookup context.
   final String sourceId;
@@ -211,6 +214,9 @@ class AiLimitsTileConfig {
 
   const AiLimitsTileConfig({
     this.accountId = '',
+    this.combined = false,
+    this.allAccounts = false,
+    this.accountIds = const [],
     this.sourceId = '',
     this.providerHint = '',
     this.aliasHint = '',
@@ -223,7 +229,7 @@ class AiLimitsTileConfig {
 
   bool get showRemaining => displayMode == 'remaining';
   bool get isCompact => density == 'compact';
-  bool get isBound => accountId.isNotEmpty;
+  bool get isBound => combined ? (allAccounts || accountIds.isNotEmpty) : accountId.isNotEmpty;
 
   /// Normalized list of preferred window kinds (empty list means show all reported windows).
   List<String> get preferredWindowKinds {
@@ -245,6 +251,9 @@ class AiLimitsTileConfig {
     final dens = p['density'] == 'compact' ? 'compact' : 'comfortable';
     return AiLimitsTileConfig(
       accountId: (p['accountId'] ?? '').trim(),
+      combined: p['view'] == 'combined',
+      allAccounts: p['accountSelection'] == 'all',
+      accountIds: (p['accountIds'] ?? '').split(',').map((id) => id.trim()).where((id) => id.isNotEmpty).toSet().take(100).toList(),
       sourceId: (p['sourceId'] ?? '').trim(),
       providerHint: (p['provider'] ?? '').trim(),
       aliasHint: (p['alias'] ?? '').trim(),
@@ -257,6 +266,9 @@ class AiLimitsTileConfig {
   }
 
   Map<String, String> toParams() => {
+        if (combined) 'view': 'combined',
+        if (allAccounts) 'accountSelection': 'all',
+        if (accountIds.isNotEmpty) 'accountIds': accountIds.toSet().join(','),
         if (pool.isNotEmpty) 'pool': pool,
         if (accountId.isNotEmpty) 'accountId': accountId,
         if (sourceId.isNotEmpty) 'sourceId': sourceId,
@@ -270,6 +282,9 @@ class AiLimitsTileConfig {
 
   AiLimitsTileConfig copyWith({
     String? accountId,
+    bool? combined,
+    bool? allAccounts,
+    List<String>? accountIds,
     String? sourceId,
     String? providerHint,
     String? aliasHint,
@@ -281,6 +296,9 @@ class AiLimitsTileConfig {
   }) =>
       AiLimitsTileConfig(
         pool: pool ?? this.pool,
+        combined: combined ?? this.combined,
+        allAccounts: allAccounts ?? this.allAccounts,
+        accountIds: accountIds ?? this.accountIds,
         accountId: accountId ?? this.accountId,
         sourceId: sourceId ?? this.sourceId,
         providerHint: providerHint ?? this.providerHint,

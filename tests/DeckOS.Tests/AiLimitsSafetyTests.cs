@@ -88,6 +88,57 @@ namespace DeckOS.Tests
         }
 
         [Fact]
+        public async Task IdentityPrivacy_AliasClear_Restart_HubAndPreview_KeepStableIdsAndDoNotRefetch()
+        {
+            var proxy = new FakeProxy { Body = """{"files":[{"auth_index":"fixture-slot","provider":"codex","display_name":"Fixture Person","email":"fixture@example.test","name":"do-not-display.json","id_token":"SECRET_FIXTURE"}]}""" };
+            var (svc, store, _, _) = NewService(proxy, "identity");
+            var created = await svc.CreateSourceAsync(new AiLimitsSourceUpsertRequest { Kind = AiLimitsSourceKinds.CliProxyPassive, BaseUrl = "http://127.0.0.1:8317", Credential = "good-key" });
+            var account = Assert.Single(created.Accounts);
+            Assert.Equal("Fixture Person", account.Alias);
+            Assert.True(account.HasReportedName);
+            var stableId = account.Id;
+            var calls = proxy.SentKeys.Count;
+            var hidden = await svc.UpdatePrivacyAsync(true);
+            Assert.Equal(calls, proxy.SentKeys.Count);
+            Assert.Equal("Codex #1", Assert.Single(hidden.Accounts).Alias);
+            Assert.DoesNotContain("Fixture Person", JsonSerializer.Serialize(hidden));
+            Assert.DoesNotContain("fixture@example.test", JsonSerializer.Serialize(svc.GetCachedSnapshotForHub()));
+            var renamed = await svc.UpdateAccountAsync(stableId, new AiLimitsAccountUpdateRequest { Alias = "Travel" });
+            Assert.Equal("Travel", renamed.Account!.Alias);
+            Assert.Equal(stableId, renamed.Account.Id);
+            var preview = await svc.TestSourceAsync(new AiLimitsSourceTestRequest { SourceId = created.Source!.Id, Kind = AiLimitsSourceKinds.CliProxyPassive, BaseUrl = "http://127.0.0.1:8317" });
+            Assert.Equal("Travel", Assert.Single(preview.Accounts).Alias);
+            Assert.DoesNotContain("Fixture Person", JsonSerializer.Serialize(preview));
+            Assert.DoesNotContain("SECRET_FIXTURE", JsonSerializer.Serialize(preview));
+            Assert.DoesNotContain("do-not-display.json", JsonSerializer.Serialize(preview));
+            Assert.DoesNotContain("Fixture Person", File.ReadAllText(store.ConfigPath));
+            var (restarted, _, _, _) = NewService(proxy, "identity");
+            var refreshed = await restarted.ManualRefreshAsync(created.Source.Id);
+            Assert.True(refreshed.Snapshot.HideAccountNames);
+            Assert.Equal("Travel", Assert.Single(refreshed.Snapshot.Accounts).Alias);
+            Assert.Equal(stableId, Assert.Single(refreshed.Snapshot.Accounts).Id);
+            var cleared = await restarted.UpdateAccountAsync(stableId, new AiLimitsAccountUpdateRequest { Alias = "" });
+            Assert.Null(cleared.Account!.CustomAlias);
+            Assert.Equal("Codex #1", cleared.Account.Alias);
+            var revealed = await restarted.UpdatePrivacyAsync(false);
+            Assert.Equal("Fixture Person", Assert.Single(revealed.Accounts).Alias);
+        }
+
+        [Fact]
+        public void IdentityAllowlist_RejectsTokenClaimsFilenameControlsAndOversizedAliases()
+        {
+            var accounts = CliProxyPassiveAdapter.ParseCredentialsPayload("fixture", """{"files":[{"provider":"claude","name":"person@example.test.json","path":"/fixture/person","id_token":{"email":"hidden@example.test"}},{"provider":"codex","display_name":"Good\u202eBad","email":"fixture@example.test"}]}""", DateTimeOffset.UtcNow);
+            Assert.Null(accounts[0].ReportedName);
+            Assert.Equal("fixture@example.test", accounts[1].ReportedName);
+            Assert.Throws<ArgumentException>(() => AiAccountDisplay.ValidateAlias("A\nB"));
+            Assert.Throws<ArgumentException>(() => AiAccountDisplay.ValidateAlias("A\u202eB"));
+            Assert.Throws<ArgumentException>(() => AiAccountDisplay.ValidateAlias(new string('x', 61)));
+            Assert.Equal("Work", AiAccountDisplay.ValidateAlias(" Work "));
+            Assert.Null(AiAccountDisplay.ValidateAlias(" "));
+            Assert.DoesNotContain("fixture@example.test", JsonSerializer.Serialize(accounts));
+        }
+
+        [Fact]
         public async Task RejectedKey_IsNeverResent_ByManualRefresh_Test_OrUnchangedUpdate_OnlyANewKeyRetries()
         {
             var proxy = new FakeProxy();

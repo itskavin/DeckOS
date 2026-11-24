@@ -28,6 +28,9 @@ class DeckButton {
 
   /// Cor exibida quando o botão está "ativo" (toggle ligado: mute/discord).
   /// Se nulo, o runtime usa vermelho como padrão.
+  @JsonKey(name: 'tileShape')
+  final String? tileShape;
+
   @JsonKey(name: 'activeColor')
   final String? activeColor;
 
@@ -83,6 +86,7 @@ class DeckButton {
     this.iconBase64,
     this.iconName,
     this.backgroundColor,
+    this.tileShape,
     this.activeColor,
     this.action,
     this.dynamicType,
@@ -110,6 +114,7 @@ class DeckButton {
     int? row,
     int? column,
     String? label,
+    String? tileShape,
     DeckAction? action,
     int? columnSpan,
     int? rowSpan,
@@ -122,6 +127,7 @@ class DeckButton {
         iconBase64: iconBase64,
         iconName: iconName,
         backgroundColor: backgroundColor,
+        tileShape: tileShape ?? this.tileShape,
         activeColor: activeColor,
         action: action ?? this.action,
         dynamicType: dynamicType,

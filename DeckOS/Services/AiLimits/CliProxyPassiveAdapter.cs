@@ -22,7 +22,7 @@ namespace DeckOS.Services.AiLimits
     /// Attribution: Signal/cooldown schemas verified against router-for-me/CLIProxyAPI (MIT, v8.0.48 / 6eb8554f).
     /// NEVER invokes /api-call, /credentials/verify, /download, /refresh, or any active-probe endpoint,
     /// NEVER retries rejected management keys (guarding against CPA's 5-strike 30-minute IP ban),
-    /// and NEVER persists or exposes credential material (id_token, email, auth filename, key).
+    /// and NEVER persists or exposes credential material (id_token, auth filename, key). Only allowlisted human display metadata is retained in memory.
     /// </summary>
     public sealed class CliProxyPassiveAdapter : IAiLimitsSourceAdapter
     {
@@ -537,6 +537,7 @@ namespace DeckOS.Services.AiLimits
                     ProviderLabel = providerLabel,
                     Alias = defaultAlias,
                     DefaultAlias = defaultAlias,
+                    ReportedName = AiAccountDisplay.ReadReportedName(item),
                     Plan = plan,
                     ModelPool = "all",
                     Enabled = !disabled,

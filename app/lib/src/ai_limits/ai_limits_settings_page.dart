@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:deckos/core/core.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/settings_kit.dart';
@@ -31,6 +32,7 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
   int _previousCooldown = 0;
   bool _addingTiles = false;
   bool _showRemaining = false;
+  final _savingPrivacy = signal(false);
   (BannerTone, String)? _notice;
 
   @override
@@ -149,16 +151,22 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
   }
 
   Future<void> _renameAccount(AiLimitsAccount acct) async {
-    final ctrl = TextEditingController(text: acct.alias);
+    var draft = acct.customAlias ?? '';
+
     final res = await showAppleDialog<String>(
       context: context,
-      title: tr('Renomear conta'),
-      content: Padding(
+      title: tr('Alias da conta'),
+      content: StatefulBuilder(builder: (context, refresh) => Watch((context) => Padding(
         padding: const EdgeInsets.only(top: AppleSpacing.sm),
-        child: TextField(
-          controller: ctrl,
+        child: TextFormField(
+          initialValue: draft,
           autofocus: true,
+          maxLength: 60,
+          inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]'))],
+          onChanged: (value) => refresh(() => draft = value),
           decoration: InputDecoration(
+            helperText: '${tr('Prévia')}: ${draft.trim().isNotEmpty ? draft.trim() : acct.automaticTitle}',
+            helperMaxLines: 3,
             isDense: true,
             filled: true,
             fillColor: AppleColors.of(context).tertiaryFill,
@@ -168,11 +176,12 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
               vertical: 10,
             ),
           ),
-          onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+          onFieldSubmitted: (v) => Navigator.of(context).pop(v.trim()),
         ),
-      ),
+      ))),
       actions: [
         AppleDialogAction(label: tr('Cancelar')),
+        AppleDialogAction(label: tr('Usar nome automático'), value: ''),
         AppleDialogAction(
           label: tr('Salvar'),
           isDefault: true,
@@ -180,9 +189,8 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
         ),
       ],
     );
-    final next = (res == '\u0000' ? ctrl.text.trim() : res)?.trim();
-    ctrl.dispose();
-    if (next == null || next.isEmpty || next == acct.alias || !mounted) return;
+    final next = (res == '\u0000' ? draft.trim() : res)?.trim();
+    if (next == null || next == (acct.customAlias ?? '') || !mounted) return;
     try {
       await _store.updateAccount(acct.id, alias: next);
     } on AiLimitsApiException catch (e) {
@@ -252,6 +260,19 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
     }
   }
 
+  Future<void> _addCombinedTile(List<AiLimitsAccount> accounts) async {
+    if (_addingTiles) return;
+    setState(() => _addingTiles = true);
+    try {
+      await AiLimitsStore.addCombinedAccountsPage(accounts);
+      _showNotice(BannerTone.success, tr('Cartão combinado na página Visão geral de IA. Seus outros cartões foram preservados.'));
+    } catch (_) {
+      _showNotice(BannerTone.error, tr('Não foi possível salvar os cartões no deck.'));
+    } finally {
+      if (mounted) setState(() => _addingTiles = false);
+    }
+  }
+
   Future<void> _openSetupGuide(AiLimitsSource source) async {
     await showSettingsSheet<void>(
       context: context,
@@ -302,6 +323,15 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
           onPressed: () => _openOnboardingWizard(),
         ),
         children: [
+          if (snap != null)
+            InsetGroupedSection(children: [
+              ListRow(
+                leading: const ListRowIcon(Icons.privacy_tip_outlined, color: Colors.blue),
+                title: tr('Privacidade e nomes'),
+                value: snap.hideAccountNames ? tr('Oculto') : null,
+                onTap: _openPrivacySettings,
+              ),
+            ]),
           if (_notice != null)
             AppleBanner(
               tone: _notice!.$1,
@@ -467,6 +497,16 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
             ),
             if (enabledAccounts.isNotEmpty)
               Padding(
+                padding: const EdgeInsets.fromLTRB(AppleSpacing.screen, 0, AppleSpacing.screen, 12),
+                child: PrimaryButton(
+                  label: tr('Combinar contas em um cartão'),
+                  icon: Icons.view_agenda_outlined,
+                  expand: true,
+                  onPressed: _addingTiles ? null : () => _addCombinedTile(enabledAccounts),
+                ),
+              ),
+            if (enabledAccounts.isNotEmpty)
+              Padding(
                 padding: const EdgeInsets.fromLTRB(
                   AppleSpacing.screen,
                   0,
@@ -496,10 +536,52 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
     });
   }
 
+  Future<void> _openPrivacySettings() => showSettingsSheet<void>(
+    context: context,
+    title: tr('Privacidade e nomes'),
+    builder: (sheet) => Watch((context) {
+      final snap = _store.snapshot.value;
+      if (snap == null) return const SizedBox.shrink();
+      final accounts = snap.accounts;
+      return ListView(shrinkWrap: true, children: [
+InsetGroupedSection(
+              header: tr('Privacidade e nomes'),
+              footer: tr('Aplica-se a todos os cartões e telas de IA deste PC, em todos os dispositivos conectados. Aliases continuam visíveis.'),
+              children: [
+                ListRow(
+                  title: tr('Ocultar nomes das contas'),
+                  subtitle: tr('Oculta nomes e emails informados pelos provedores. Use aliases para reconhecer suas contas.'),
+                  trailing: AppleSwitch(
+                    value: snap.hideAccountNames,
+                    onChanged: _savingPrivacy.value ? null : (value) async {
+                      setState(() => _savingPrivacy.value = true);
+                      try {
+                        await _store.updatePrivacy(value);
+                      } on AiLimitsApiException catch (e) {
+                        _showNotice(BannerTone.error, e.message);
+                      } finally {
+                        if (mounted) setState(() => _savingPrivacy.value = false);
+                      }
+                    },
+                  ),
+                ),
+                for (final a in accounts)
+                  ListRow(
+                    title: a.displayTitle,
+                    subtitle: '${a.providerLabel} · ${a.customAlias != null ? tr('Alias personalizado') : tr('Nome automático')}',
+                    value: tr('Editar alias'),
+                    onTap: () => _renameAccount(a),
+                  ),
+              ],
+            ),
+      ]);
+    }),
+  );
+
   Future<void> _openAccountActions(AiLimitsAccount account) async {
     final choice = await showSettingsSheet<String>(
       context: context,
-      title: account.displayTitle,
+      title: account.providerLabel,
       builder: (sheet) => ListView(
         shrinkWrap: true,
         children: [
@@ -516,7 +598,7 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
                 onTap: () => Navigator.of(sheet).pop('add_tile'),
               ),
               ListRow(
-                title: tr('Renomear'),
+                title: tr('Editar alias'),
                 onTap: () => Navigator.of(sheet).pop('rename'),
               ),
               if (account.dashboardUrl != null &&

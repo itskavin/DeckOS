@@ -347,3 +347,20 @@ Local-only account customization (never mutates upstream providers).
   - When an `accountId` is missing (deleted source/account) or has `unavailable`/`not_connected` windows, the tile stays on the user's deck grid with its position/span intact and displays an honest reconnect/unavailable state.
 - **Legacy `"ai_usage"` tiles:** Preserved and unbroken. `InfoService` routes legacy `ai_usage` plan queries to safe passive/official snapshots (never calls undocumented `api.anthropic.com/api/oauth/usage`), while `show="tokens"` continues reading local JSONL logs.
 - **Demo `"ai_limits_demo"` tiles:** Untouched/isolated from live `"ai_limits"` data.
+
+
+## Account display names and privacy
+
+`hideAccountNames` (snapshot boolean, default false) is stored on the PC in `ai-limits.json` and shared with authenticated paired clients. `PUT /api/ai-limits/privacy` accepts `{ "hideAccountNames": true }`, returns the updated snapshot and broadcasts it without contacting providers. Names are shown by default because the user explicitly requested account identity display; enabling privacy hides the entire provider-reported name/email, rather than partially masking it.
+
+Account `alias` is the resolved display label: a saved custom alias first, otherwise the reported human name/email when privacy is off, otherwise `defaultAlias` (provider plus account number). `customAlias` is nullable; an empty alias in the existing account update clears it. `automaticDisplayName` is the privacy-resolved automatic fallback; `hasReportedName` says only whether a name is available. Raw identity metadata is kept in memory, excluded from serialization and never saved into deck profiles/backups. Aliases remain visible while privacy is on. Aliases accept at most 60 UTF-16 characters and reject control, format and direction characters. IDs, source settings, model pools and credential names do not change when editing aliases or privacy.
+
+CLIProxyAPI uses only explicit top-level `display_name`, `displayName`, `account_name`, then `email` fields from its existing passive credentials response. Generic `name`, filenames, paths, tokens and raw claims are excluded. Codex reads `account/read` with `refreshToken: false` in the existing official local app-server process; missing/unsupported profiles do not discard quota readings. No inference, extra quota poll, credential harvesting or login mutation is added. Sources that do not report identity keep the provider/number fallback. Client display guards also hide names in an already-open onboarding preview when the shared privacy preference changes.
+
+## Combined subscription tiles and individual shape
+
+Existing single-account tile bindings are unchanged. A combined tile keeps `dynamicType: "ai_limits"` and uses `view: "combined"` plus comma-separated opaque `accountIds`; `accountSelection: "all"` instead follows all enabled accounts, including newly connected accounts. Explicit selections keep removed accounts visible as a repair state. The editor can return to one-account mode without changing the saved button ID, position or span.
+
+The combined tile shows independent account/window readings with provider logos, names/aliases, stale/N/A/unavailable states and optional reset times. Wider/taller tiles show more rows; compact tiles show a provider/account count and an explicit detail affordance. Tapping opens every selected subscription with its own limits. Percentages are never added or averaged across subscriptions. Settings can add a separate AI Overview page without replacing existing individual tiles.
+
+`DeckButton.tileShape` optionally sets `squircle`, `rounded` or `square` for that button. Null/empty/unknown values inherit the global theme. The field survives profile serialization, moves and copies and does not change the grid footprint, resize behavior, actions or gestures. Rectangular silhouettes preserve space for metrics at non-square spans.

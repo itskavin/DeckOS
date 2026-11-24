@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../stream_deck/buttons/colors.dart';
 import '../stream_deck/widgets/usage_bars.dart' show CapsuleBar;
 import 'ai_limits_models.dart';
+import 'ai_limits_combined.dart';
 import 'ai_limits_settings_page.dart';
 import 'ai_limits_store.dart';
 import 'ai_provider_icon.dart';
@@ -58,6 +59,7 @@ class _AiLimitsTileState extends State<AiLimitsTile> {
             ? snap?.sourceById(account.sourceId)
             : (config.sourceId.isNotEmpty ? snap?.sourceById(config.sourceId) : null);
 
+        if (config.combined) return AiLimitsCombinedBody(config: config, snapshot: snap, label: widget.button.label, loading: loading, error: error);
         return _AiLimitsTileBody(
           button: widget.button,
           config: config,
@@ -123,7 +125,7 @@ class _AiLimitsTileBody extends StatelessWidget {
     if (loading && account == null) {
       final fallbackTitle = (customLabel?.isNotEmpty ?? false)
           ? customLabel!
-          : (config.aliasHint.isNotEmpty ? config.aliasHint : style.displayName);
+          : style.displayName;
       return _LoadingTileLayout(
         style: style,
         accent: accent,
@@ -137,9 +139,7 @@ class _AiLimitsTileBody extends StatelessWidget {
     if (account == null) {
       final fallbackTitle = (customLabel?.isNotEmpty ?? false)
           ? customLabel!
-          : (config.aliasHint.isNotEmpty
-              ? '${style.displayName} · ${config.aliasHint}'
-              : style.displayName);
+          : style.displayName;
       if (!hasSnapshot && storeError != null) {
         return _StatusTileLayout(
           style: style,
@@ -167,10 +167,11 @@ class _AiLimitsTileBody extends StatelessWidget {
     }
 
     final acct = account!;
-    final title = (customLabel?.isNotEmpty ?? false) ? customLabel! : acct.providerLabel;
-    final aliasText = (acct.alias.isNotEmpty &&
-            acct.alias.toLowerCase() != title.toLowerCase())
-        ? acct.alias
+    final title = (customLabel?.isNotEmpty ?? false) && customLabel!.toLowerCase() != acct.providerLabel.toLowerCase()
+        ? customLabel
+        : acct.displayTitle;
+    final aliasText = (acct.providerLabel.toLowerCase() != title.toLowerCase())
+        ? acct.providerLabel
         : '';
     final planText = (acct.plan != null && acct.plan!.trim().isNotEmpty)
         ? acct.plan!.trim()
@@ -2081,6 +2082,7 @@ Future<void> showAiLimitsDetailSheet(
 }) {
   final config = AiLimitsTileConfig.fromParams(button.dynamicParameters);
   AiLimitsStore.instance.ensureInitialized();
+  if (config.combined) return showAiLimitsCombinedSheet(context, button, onEditTile: onEditTile, onSettingsClosed: onSettingsClosed);
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,

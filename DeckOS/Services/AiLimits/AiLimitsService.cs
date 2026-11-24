@@ -270,7 +270,7 @@ namespace DeckOS.Services.AiLimits
                 Message = res.StatusMessage ?? (res.Ok ? "Connection succeeded." : "Connection failed."),
                 DetectedApiVersion = res.DetectedApiVersion,
                 CapabilitiesNote = res.CapabilitiesNote,
-                Accounts = res.Accounts.Select(a => AiLimitsNormalizer.CloneWithCurrentFreshness(a, now)).ToList(),
+                Accounts = res.Accounts.Select(a => ResolveAccountDisplay(AiLimitsNormalizer.CloneWithCurrentFreshness(a, now))).ToList(),
             };
         }
 
@@ -502,7 +502,7 @@ namespace DeckOS.Services.AiLimits
                     _config.AccountOverrides[accountId] = ov = new AiLimitsAccountOverride();
 
                 if (req.Alias != null)
-                    ov.Alias = string.IsNullOrWhiteSpace(req.Alias) ? null : req.Alias.Trim();
+                    ov.Alias = AiAccountDisplay.ValidateAlias(req.Alias);
                 if (req.Enabled.HasValue)
                     ov.Enabled = req.Enabled.Value;
                 if (req.Plan != null)
@@ -518,6 +518,29 @@ namespace DeckOS.Services.AiLimits
             var snapshot = await GetSnapshotAsync(false, ct);
             await BroadcastAsync(snapshot);
             return (snapshot.Accounts.FirstOrDefault(a => a.Id == accountId), snapshot);
+        }
+
+        public async Task<AiLimitsSnapshotResponse> UpdatePrivacyAsync(bool hideAccountNames, CancellationToken ct = default)
+        {
+            lock (_refreshGate)
+            {
+                _config.HideAccountNames = hideAccountNames;
+                _store.SaveConfig(_config);
+            }
+            var snapshot = await GetSnapshotAsync(false, ct);
+            await BroadcastAsync(snapshot);
+            return snapshot;
+        }
+
+        private AiLimitsAccountDto ResolveAccountDisplay(AiLimitsAccountDto account)
+        {
+            lock (_refreshGate)
+            {
+                if (_config.AccountOverrides.TryGetValue(account.Id, out var ov))
+                    account.CustomAlias = AiAccountDisplay.NormalizeReportedName(ov.Alias);
+                AiAccountDisplay.Resolve(account, _config.HideAccountNames);
+            }
+            return account;
         }
 
         public async Task<(bool Removed, AiLimitsSnapshotResponse Snapshot)> RemoveAccountLocalAsync(string accountId, CancellationToken ct = default)
@@ -868,6 +891,7 @@ namespace DeckOS.Services.AiLimits
             HashSet<string> hidden;
             int autoInterval;
             int cooldown;
+            bool hideAccountNames;
             DateTimeOffset? nextRefresh;
 
             lock (_refreshGate)
@@ -877,6 +901,7 @@ namespace DeckOS.Services.AiLimits
                 hidden = new HashSet<string>(_config.HiddenAccountIds, StringComparer.Ordinal);
                 autoInterval = _config.AutoRefreshIntervalSeconds;
                 cooldown = _config.ManualCooldownSeconds;
+                hideAccountNames = _config.HideAccountNames;
                 nextRefresh = _lastManualRefreshAt.HasValue && now < _lastManualRefreshAt.Value.AddSeconds(cooldown)
                     ? _lastManualRefreshAt.Value.AddSeconds(cooldown)
                     : null;
@@ -900,7 +925,7 @@ namespace DeckOS.Services.AiLimits
                     var acct = AiLimitsNormalizer.CloneWithCurrentFreshness(rawAcct, now);
                     if (overrides.TryGetValue(acct.Id, out var ov))
                     {
-                        if (!string.IsNullOrWhiteSpace(ov.Alias)) acct.Alias = ov.Alias;
+                        acct.CustomAlias = AiAccountDisplay.NormalizeReportedName(ov.Alias);
                         if (ov.Enabled.HasValue) acct.Enabled = ov.Enabled.Value;
                         if (!string.IsNullOrWhiteSpace(ov.Plan)) acct.Plan = ov.Plan;
                         if (!string.IsNullOrWhiteSpace(ov.DashboardUrl)) acct.DashboardUrl = ov.DashboardUrl;
@@ -910,6 +935,7 @@ namespace DeckOS.Services.AiLimits
                         acct.Enabled = false;
                         acct.ConnectionStatus = AiLimitsConnectionStatuses.Disabled;
                     }
+                    AiAccountDisplay.Resolve(acct, hideAccountNames);
                     visibleAccounts.Add(acct);
                 }
 
@@ -971,6 +997,7 @@ namespace DeckOS.Services.AiLimits
                     AutoRefreshIntervalSeconds = autoInterval,
                     IsRefreshing = Volatile.Read(ref _activeRefreshCount) > 0,
                 },
+                HideAccountNames = hideAccountNames,
                 Sources = sourceDtos,
                 Accounts = accountDtos,
             };

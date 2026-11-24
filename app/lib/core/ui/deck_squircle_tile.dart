@@ -1,3 +1,4 @@
+import 'tile_shape.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -297,10 +298,10 @@ class DeckSquircleTile extends StatelessWidget {
               end: Alignment.bottomCenter,
               colors: [top, fill],
             ),
-            shape: AppleShapes.squircle(
+            shape: DeckTileShapeScope.border(context, AppleShapes.squircle(
               radius,
               side: BorderSide(color: rimColor, width: darkBg ? 0.75 : 0.5),
-            ),
+            ), side: BorderSide(color: rimColor, width: darkBg ? 0.75 : 0.5)),
             shadows: darkBg
                 ? const [
                     BoxShadow(

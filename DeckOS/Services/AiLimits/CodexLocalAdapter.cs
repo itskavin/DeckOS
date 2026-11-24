@@ -18,7 +18,8 @@ namespace DeckOS.Services.AiLimits
         bool AuthRequired,
         string? RawResultJson,
         string? ErrorCode,
-        string? ErrorMessage);
+        string? ErrorMessage,
+        string? DisplayName = null);
 
     public interface ICodexAppServerRunner
     {
@@ -136,7 +137,26 @@ namespace DeckOS.Services.AiLimits
                     if (read.Error is { } readErr)
                         return FromRpcError(readErr);
                     if (read.Result != null)
-                        return new(true, false, false, read.Result, null, null);
+                    {
+                        // Official local profile only, in the existing process. Never refresh/login or decode tokens.
+                        string? displayName = null;
+                        try
+                        {
+                            await proc.StandardInput.WriteLineAsync("""{"id":3,"method":"account/read","params":{"refreshToken":false}}""");
+                            await proc.StandardInput.FlushAsync(ct);
+                            var profile = await ReadResponseAsync(proc, 3, RpcTimeout, ct);
+                            if (profile.Result != null)
+                            {
+                                using var profileDoc = JsonDocument.Parse(profile.Result);
+                                if (profileDoc.RootElement.TryGetProperty("account", out var account) && account.ValueKind == JsonValueKind.Object &&
+                                    account.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "chatgpt")
+                                    displayName = AiAccountDisplay.ReadReportedName(account);
+                            }
+                        }
+                        catch (Exception ex) when (ex is JsonException or IOException || ex is OperationCanceledException && !ct.IsCancellationRequested)
+                        { /* Optional profile failure must never discard valid quotas or log identity. */ }
+                        return new(true, false, false, read.Result, null, null, displayName);
+                    }
 
                     return new(false, false, false, null, AiLimitsErrorCodes.Timeout, "codex app-server closed without returning rate limits.");
                 }
@@ -257,6 +277,7 @@ namespace DeckOS.Services.AiLimits
                     try
                     {
                         var accounts = ParseAppServerResult(source, rpc.RawResultJson, now);
+                        foreach (var account in accounts) account.ReportedName = AiAccountDisplay.NormalizeReportedName(rpc.DisplayName);
                         return new AiLimitsAdapterResult
                         {
                             Ok = true,

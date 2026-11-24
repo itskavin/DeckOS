@@ -60,6 +60,7 @@ class ButtonPropertyPanelState extends State<ButtonPropertyPanel> {
   late TwoStateValue _twoState = TwoStateValue.of(widget.button);
   late int _columnSpan = widget.button.columnSpan;
   late int _rowSpan = widget.button.rowSpan;
+  late String _tileShape = const {'squircle', 'rounded', 'square'}.contains(widget.button.tileShape) ? widget.button.tileShape! : '';
 
   /// Ações que refletem um estado ligado/desligado (e portanto têm "cor de ativo").
   bool get _isStatefulAction => _catalog.find(_tap?.type)?.stateful ?? false;
@@ -101,6 +102,7 @@ class ButtonPropertyPanelState extends State<ButtonPropertyPanel> {
       column: widget.button.column,
       label: _labelController.text,
       backgroundColor: colorToHex(_color),
+      tileShape: _tileShape.isEmpty ? null : _tileShape,
       activeColor: _showsActive ? colorToHex(_activeColor) : null,
       iconName: _icon,
       iconBase64: _iconBase64,
@@ -447,6 +449,26 @@ class ButtonPropertyPanelState extends State<ButtonPropertyPanel> {
           ],
         );
     return [
+      InsetGroupedSection(
+        header: tr('Forma do cartão'),
+        footer: tr('Altera somente este cartão. O tamanho e os gestos continuam iguais.'),
+        margin: margin,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: DropdownButtonFormField<String>(
+              key: ValueKey('tile-shape-$_tileShape'),
+              initialValue: _tileShape,
+              decoration: InputDecoration(labelText: tr('Forma')),
+              items: [
+                for (final entry in {'': 'Usar tema global', 'squircle': 'Squircle', 'rounded': 'Arredondado', 'square': 'Quadrado'}.entries)
+                  DropdownMenuItem(value: entry.key, child: Text(tr(entry.value))),
+              ],
+              onChanged: (value) => setState(() => _tileShape = value ?? ''),
+            ),
+          ),
+        ],
+      ),
       InsetGroupedSection(
         header: tr('Tamanho'),
         footer: tr('Um botão grande não cobre outros botões: ele para onde houver um.'),

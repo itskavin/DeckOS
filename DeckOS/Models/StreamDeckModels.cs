@@ -36,6 +36,8 @@ namespace DeckOS.Models
         public string? IconBase64 { get; set; }
         public string? IconName { get; set; } // Material icon name
         public string? BackgroundColor { get; set; }
+        /// <summary>Optional per-tile silhouette: squircle, rounded, square; null inherits the theme.</summary>
+        public string? TileShape { get; set; }
         public string? ActiveColor { get; set; } // Cor quando o botão está "ativo" (toggle: mute/discord ligado)
         public string? DynamicType { get; set; }
         public DeckAction? Action { get; set; }

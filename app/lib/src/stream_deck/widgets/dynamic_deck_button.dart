@@ -3,6 +3,7 @@ import 'package:deckos/src/services/signalr_service.dart';
 import 'package:deckos/core/core.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
+import 'package:deckos/core/ui/tile_shape.dart';
 import 'package:deckos/src/stream_deck/actions/action_catalog.dart';
 
 import '../buttons/colors.dart';
@@ -42,8 +43,6 @@ class DynamicDeckButton extends StatelessWidget {
     if (type == aiLimitsDynamicType) {
       final custom = button.label?.trim();
       if (custom != null && custom.isNotEmpty) return custom;
-      final cfg = AiLimitsTileConfig.fromParams(button.dynamicParameters);
-      if (cfg.aliasHint.isNotEmpty) return '${tr('Limites de IA')}: ${cfg.aliasHint}';
       return tr('Limites de IA');
     }
     if (type != null && type.isNotEmpty && type != 'none') {
@@ -69,13 +68,13 @@ class DynamicDeckButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Junta o rótulo daqui com o estado (ligado/desligado) que o visual da tecla informa.
-    return MergeSemantics(
+    return DeckTileShapeScope(shape: button.tileShape, child: MergeSemantics(
       child: Semantics(
         button: true,
         label: _semanticLabel(),
         child: _build(context),
       ),
-    );
+    ));
   }
 
   Widget _build(BuildContext context) {

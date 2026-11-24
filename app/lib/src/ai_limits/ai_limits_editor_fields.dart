@@ -72,6 +72,50 @@ class _AiLimitsEditorFieldsState extends State<AiLimitsEditorFields> {
         children: [
           Padding(
             padding: const EdgeInsets.only(top: 12),
+            child: SegmentedButton<bool>(
+              segments: [
+                ButtonSegment(value: false, label: Text(tr('Uma conta'))),
+                ButtonSegment(value: true, label: Text(tr('Combinar contas'))),
+              ],
+              selected: {config.combined},
+              onSelectionChanged: (value) => _update(config.copyWith(
+                combined: value.first,
+                accountIds: config.accountIds.isEmpty && config.accountId.isNotEmpty ? [config.accountId] : config.accountIds,
+              )),
+            ),
+          ),
+          if (config.combined) ...[
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr('Todas as contas ativadas')),
+              subtitle: Text(tr('Inclui novas contas automaticamente. Cada limite continua separado.')),
+              value: config.allAccounts,
+              onChanged: (value) => _update(config.copyWith(allAccounts: value)),
+            ),
+            if (!config.allAccounts) ...[
+              for (final account in accounts)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(account.displayTitle),
+                  subtitle: Text(account.providerLabel),
+                  value: config.accountIds.contains(account.id),
+                  onChanged: (value) => _update(config.copyWith(accountIds: value == true
+                      ? [...config.accountIds, account.id].toSet().toList()
+                      : config.accountIds.where((id) => id != account.id).toList())),
+                ),
+              for (final id in config.accountIds.where((id) => !accounts.any((a) => a.id == id)))
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(tr('Conta removida')),
+                  subtitle: Text(tr('Escolha outra conta ou desmarque esta entrada.')),
+                  value: true,
+                  onChanged: (_) => _update(config.copyWith(accountIds: config.accountIds.where((a) => a != id).toList())),
+                ),
+            ],
+            Text(tr('Use um cartão largo ou alto para ver mais contas. Toque nele para ver todos os limites, sem somar percentuais.')),
+          ],
+          if (!config.combined) Padding(
+            padding: const EdgeInsets.only(top: 12),
             child: DropdownButtonFormField<String>(
               key: ValueKey('ai_limits_acct_${config.accountId}_${accounts.length}'),
               initialValue: config.accountId,
@@ -119,9 +163,7 @@ class _AiLimitsEditorFieldsState extends State<AiLimitsEditorFields> {
                   DropdownMenuItem(
                     value: config.accountId,
                     child: Text(
-                      config.aliasHint.isNotEmpty
-                          ? '${config.aliasHint} (${tr('Conta removida')})'
-                          : tr('Conta removida'),
+                      tr('Conta removida'),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -133,14 +175,14 @@ class _AiLimitsEditorFieldsState extends State<AiLimitsEditorFields> {
                   accountId: id,
                   sourceId: match?.sourceId ?? (id.isEmpty ? '' : config.sourceId),
                   providerHint: match?.provider ?? (id.isEmpty ? '' : config.providerHint),
-                  aliasHint: match?.alias ?? (id.isEmpty ? '' : config.aliasHint),
+                  aliasHint: match?.defaultAlias ?? '',
                   // Pools belong to one account: a new account starts on its main pool.
                   pool: id == config.accountId ? config.pool : '',
                 ));
               },
             ),
           ),
-          if (poolChoices.isNotEmpty)
+          if (!config.combined && poolChoices.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: DropdownButtonFormField<String>(

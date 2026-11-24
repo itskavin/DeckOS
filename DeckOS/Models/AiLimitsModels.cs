@@ -214,6 +214,7 @@ namespace DeckOS.Models
         public DateTimeOffset GeneratedAt { get; set; } = DateTimeOffset.UtcNow;
         public AiLimitsCapabilitiesDto Capabilities { get; set; } = new();
         public AiLimitsRefreshPolicyDto Refresh { get; set; } = new();
+        public bool HideAccountNames { get; set; }
         public List<AiLimitsSourceDto> Sources { get; set; } = new();
         public List<AiLimitsAccountDto> Accounts { get; set; } = new();
     }
@@ -299,6 +300,12 @@ namespace DeckOS.Models
         public string ProviderLabel { get; set; } = "AI Account";
         public string Alias { get; set; } = string.Empty;
         public string DefaultAlias { get; set; } = string.Empty;
+        public string? CustomAlias { get; set; }
+        public string? AutomaticDisplayName { get; set; }
+        public bool HasReportedName { get; set; }
+        // Internal display metadata only; never serialize raw names outside the privacy resolver.
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? ReportedName { get; set; }
         public string? Plan { get; set; }
         public string? ModelPool { get; set; }
         public bool Enabled { get; set; } = true;
@@ -381,6 +388,11 @@ namespace DeckOS.Models
         public string? SourceId { get; set; }
     }
 
+    public sealed class AiLimitsPrivacyUpdateRequest
+    {
+        public bool HideAccountNames { get; set; }
+    }
+
     public sealed class AiLimitsAccountUpdateRequest
     {
         public string? Alias { get; set; }
@@ -412,6 +424,7 @@ namespace DeckOS.Models
         public int SchemaVersion { get; set; } = 1;
         public int AutoRefreshIntervalSeconds { get; set; } = 180;
         public int ManualCooldownSeconds { get; set; } = 15;
+        public bool HideAccountNames { get; set; }
         public List<AiLimitsSourceConfig> Sources { get; set; } = new();
         public Dictionary<string, AiLimitsAccountOverride> AccountOverrides { get; set; } = new(StringComparer.Ordinal);
         public HashSet<string> HiddenAccountIds { get; set; } = new(StringComparer.Ordinal);

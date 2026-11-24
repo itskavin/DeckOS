@@ -1,3 +1,4 @@
+import 'ai_account_privacy.dart';
 import 'package:flutter/foundation.dart';
 
 /// Immutable Dart models matching `docs/ai-limits-api-contract.md` (v1).
@@ -406,6 +407,9 @@ class AiLimitsAccount {
   final String providerLabel;
   final String alias;
   final String defaultAlias;
+  final String? customAlias;
+  final String? automaticDisplayName;
+  final bool hasReportedName;
   final String? plan;
   final String? modelPool;
   final bool enabled;
@@ -435,6 +439,9 @@ class AiLimitsAccount {
     required this.providerLabel,
     required this.alias,
     this.defaultAlias = '',
+    this.customAlias,
+    this.automaticDisplayName,
+    this.hasReportedName = false,
     this.plan,
     this.modelPool,
     this.enabled = true,
@@ -456,10 +463,16 @@ class AiLimitsAccount {
     this.windows = const [],
   });
 
-  String get displayTitle =>
-      alias.isEmpty || alias.toLowerCase() == providerLabel.toLowerCase()
-          ? providerLabel
-          : '$providerLabel · $alias';
+  String get displayTitle {
+    if (hasReportedName && AiAccountPrivacy.hideNames.value) {
+      return customAlias ?? (defaultAlias.isNotEmpty ? defaultAlias : providerLabel);
+    }
+    return alias.isNotEmpty ? alias : providerLabel;
+  }
+
+  String get automaticTitle => AiAccountPrivacy.hideNames.value
+      ? (defaultAlias.isNotEmpty ? defaultAlias : providerLabel)
+      : (automaticDisplayName ?? defaultAlias);
 
   /// Green connected indicator ONLY when source/account reachability & auth are valid.
   bool get isConnectionHealthy => enabled && connectionStatus == 'connected';
@@ -579,6 +592,9 @@ class AiLimitsAccount {
       providerLabel: providerLabel,
       alias: alias,
       defaultAlias: _str(json['defaultAlias'], alias),
+      customAlias: _optStr(json['customAlias']),
+      automaticDisplayName: _optStr(json['automaticDisplayName']),
+      hasReportedName: json['hasReportedName'] == true,
       plan: _optStr(json['plan']),
       modelPool: _optStr(json['modelPool']),
       enabled: json['enabled'] != false,
@@ -604,6 +620,7 @@ class AiLimitsAccount {
 
 @immutable
 class AiLimitsSnapshot {
+  final bool hideAccountNames;
   final int schemaVersion;
   final DateTime? generatedAt;
   final AiLimitsCapabilities capabilities;
@@ -612,6 +629,7 @@ class AiLimitsSnapshot {
   final List<AiLimitsAccount> accounts;
 
   const AiLimitsSnapshot({
+    this.hideAccountNames = false,
     this.schemaVersion = 1,
     this.generatedAt,
     this.capabilities = const AiLimitsCapabilities(),
@@ -648,6 +666,7 @@ class AiLimitsSnapshot {
 
   factory AiLimitsSnapshot.fromJson(Map<String, dynamic> json) {
     return AiLimitsSnapshot(
+      hideAccountNames: json['hideAccountNames'] == true,
       schemaVersion: _parseInt(json['schemaVersion']) ?? 1,
       generatedAt: _parseDate(json['generatedAt']),
       capabilities: AiLimitsCapabilities.fromJson(

@@ -773,6 +773,20 @@ namespace DeckOS.Tests
         }
 
         [Fact]
+        public async Task PrivacyEndpoint_RequiresAuth_PersistsForOtherClients_AndAliasValidationDoesNotEchoInput()
+        {
+            var json = new StringContent("""{"hideAccountNames":true}""", Encoding.UTF8, "application/json");
+            Assert.Equal(HttpStatusCode.Unauthorized, (await Client(false).PutAsync("/api/ai-limits/privacy", json)).StatusCode);
+            var response = await Client().PutAsync("/api/ai-limits/privacy", new StringContent("""{"hideAccountNames":true}""", Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var read = JsonDocument.Parse(await Client().GetStringAsync("/api/ai-limits"));
+            Assert.True(read.RootElement.GetProperty("hideAccountNames").GetBoolean());
+            var invalid = await Client().PutAsync("/api/ai-limits/accounts/acct_fixture", new StringContent("""{"alias":"Fixture\nSensitive"}""", Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+            Assert.DoesNotContain("Sensitive", await invalid.Content.ReadAsStringAsync());
+        }
+
+        [Fact]
         public async Task Endpoints_RequireAuth_AndSupportFullCrudAndRefreshCooldown()
         {
             // Unauthenticated -> 401

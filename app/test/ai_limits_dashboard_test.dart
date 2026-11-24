@@ -448,7 +448,7 @@ void main() {
     await tester.tap(options);
     await tester.pumpAndSettle();
     expect(find.text('Disable account'), findsOneWidget);
-    expect(find.text('Rename'), findsOneWidget);
+    expect(find.text('Edit alias'), findsOneWidget);
     expect(find.text('Add tile to AI Usage page'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
