@@ -63,6 +63,7 @@ Map<String, dynamic> fixtureAccount(
 
 class FixtureServer {
   bool hidden = false;
+  DateTime generatedAt = DateTime.utc(2026, 11, 24, 12);
   String? alias;
   Completer<void>? privacyGate;
   final profiles = [
@@ -76,6 +77,7 @@ class FixtureServer {
   ];
   final bodies = <Map<String, dynamic>>[];
   Map<String, dynamic> get snapshot => {
+    'generatedAt': generatedAt.toIso8601String(),
     'hideAccountNames': hidden,
     'accounts': [
       {
@@ -343,6 +345,26 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Fixture Person'), findsNothing);
       expect(find.text('Travel'), findsWidgets);
+    },
+  );
+
+  test(
+    'delayed snapshots cannot reveal names after a newer privacy change',
+    () async {
+      final server = await register();
+      server.generatedAt = server.generatedAt.add(const Duration(seconds: 1));
+      await AiLimitsStore.instance.updatePrivacy(true);
+      final accepted = AiLimitsStore.instance.snapshot.value;
+      server.hidden = false;
+      server.generatedAt = server.generatedAt.subtract(
+        const Duration(seconds: 1),
+      );
+      await AiLimitsStore.instance.load();
+      expect(AiLimitsStore.instance.snapshot.value, same(accepted));
+      expect(
+        AiLimitsStore.instance.snapshot.value!.accounts.first.displayTitle,
+        'codex a',
+      );
     },
   );
 

@@ -117,6 +117,10 @@ class AiLimitsStore {
   }
 
   void _applySnapshot(AiLimitsSnapshot next) {
+    final previousTime = snapshot.value?.generatedAt;
+    final incomingTime = next.generatedAt;
+    // A delayed refresh or hub push must not undo a newer privacy/alias change.
+    if (previousTime != null && incomingTime != null && incomingTime.isBefore(previousTime)) return;
     AiAccountPrivacy.hideNames.value = next.hideAccountNames;
     snapshot.value = next;
     cooldownUntil.value = next.refresh.nextRefreshAllowedAt;
