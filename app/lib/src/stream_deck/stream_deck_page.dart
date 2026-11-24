@@ -1363,6 +1363,7 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
                 ? _editDraft!
                 : page.buttons;
             final (minCols, minRows) = _extentsOf(btns);
+            final hasAiLimits = btns.any((b) => b.dynamicType == aiLimitsDynamicType);
             return DeckGridFit.compute(
               area: area,
               screen: screen,
@@ -1371,6 +1372,8 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
               minRows: minRows,
               spacing: deck.spacing,
               allowReflow: !_editMode,
+              minCellHeight: hasAiLimits ? DeckGridFit.aiLimitsMinCell : DeckGridFit.minCell,
+              preferTwoColPortrait: hasAiLimits,
             );
           }
 
@@ -1992,6 +1995,23 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
                   ),
                 ),
                 const PcMenuButton(),
+                if ((folder ?? currentProfile) != null &&
+                    (_isAiUsageProfile(folder ?? currentProfile!) ||
+                        (folder ?? currentProfile!)
+                            .buttons
+                            .any((b) => b.dynamicType == aiLimitsDynamicType)))
+                  _ChromeButton(
+                    icon: Icons.add_circle_outline_rounded,
+                    tooltip: tr('Conectar contas de IA'),
+                    onPressed: () => _withChromePaused(() async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const AiLimitsSettingsPage(),
+                        ),
+                      );
+                      if (mounted) controller.loadProfiles();
+                    }),
+                  ),
                 _ChromeButton(
                   icon: Icons.grid_view_rounded,
                   tooltip: tr('Layout da grade'),
@@ -2084,6 +2104,7 @@ class DeckGridFit {
     required this.deckCols,
     required this.deckRows,
     this.reflow = false,
+    this.comfortMinCell = minCell,
   });
 
   final int cols;
@@ -2099,8 +2120,15 @@ class DeckGridFit {
   final int deckRows;
   final bool reflow;
 
+  /// Altura mínima confortável de uma célula antes de rolar a página.
+  final double comfortMinCell;
+
   /// Menor tecla que ainda é confortável de tocar.
   static const minCell = 72.0;
+
+  /// Altura mínima confortável para páginas com cartões de Limites de IA (evita
+  /// cartões minúsculos espremidos no retrato ou em grades 4×4).
+  static const aiLimitsMinCell = 136.0;
 
   /// Tecla-alvo do deck deitado. Grande como as dos prints: duas fileiras num celular.
   static const _target = 124.0;
@@ -2160,9 +2188,12 @@ class DeckGridFit {
     int minRows = 1,
     DeckSpacing spacing = DeckSpacing.balanced,
     bool allowReflow = true,
+    double minCellHeight = minCell,
+    bool preferTwoColPortrait = false,
   }) {
     final sp = spacingFor(screen, spacing);
     final ratio = spacing.gapRatio;
+    final comfortMin = math.max(minCell, minCellHeight);
     int dc, dr;
     final sc = shared?['columns'], sr = shared?['rows'];
     if (sc != null && sr != null && sc > 0 && sr > 0) {
@@ -2181,9 +2212,11 @@ class DeckGridFit {
     dr = math.max(dr, minRows).clamp(1, 20);
 
     final (cell, gap) = fitCell(area, dc, dr, sp, ratio: ratio);
-    // Em pé com uma grade deitada, ou teclas pequenas demais: reorganiza.
-    final portrait = area.height > area.width * 1.15 && dc > dr;
-    if (!allowReflow || (!portrait && cell >= minCell)) {
+    // Em pé com uma grade deitada (ou cartões largos de IA em 4 colunas), ou teclas
+    // pequenas demais: reorganiza.
+    final isTallPortrait = area.height > area.width * 1.15;
+    final portrait = isTallPortrait && (dc > dr || (preferTwoColPortrait && dc > 2));
+    if (!allowReflow || (!portrait && cell >= comfortMin)) {
       final c = cell.clamp(1.0, _maxCell);
       return DeckGridFit(
         cols: dc,
@@ -2193,12 +2226,18 @@ class DeckGridFit {
         area: area,
         deckCols: dc,
         deckRows: dr,
+        comfortMinCell: comfortMin,
       );
     }
     // Colunas que cabem com teclas boas; em pé, no máximo as fileiras do deck (4×2
-    // deitado vira 2×4 em pé).
+    // deitado vira 2×4 em pé). Páginas com cartões largos de IA usam 2 colunas em pé
+    // para que cartões 2×1 ocupem toda a largura com ótima legibilidade.
     var cols = _fit(area.width, _reflowTarget, sp).clamp(1, dc);
-    if (portrait && dr >= 2) cols = math.min(cols, dr);
+    if (portrait && preferTwoColPortrait && dc >= 2) {
+      cols = math.min(cols, 2);
+    } else if (portrait && dr >= 2) {
+      cols = math.min(cols, dr);
+    }
     final g = math.max(sp, math.min((area.width - sp * (cols - 1)) / cols, _maxCell) * ratio);
     final w = math.min((area.width - g * (cols - 1)) / cols, _maxCell);
     final rows = math.max(1, ((area.height + g) / (w + g)).floor());
@@ -2211,6 +2250,7 @@ class DeckGridFit {
       deckCols: dc,
       deckRows: dr,
       reflow: true,
+      comfortMinCell: comfortMin,
     );
   }
 
@@ -2220,7 +2260,7 @@ class DeckGridFit {
     if (usedRows <= 0) return cell;
     final byHeight = (area.height - spacing * (usedRows - 1)) / usedRows;
     if (byHeight >= cell) return cell;
-    return byHeight >= minCell ? byHeight : cell;
+    return byHeight >= comfortMinCell ? byHeight : cell;
   }
 
   @override

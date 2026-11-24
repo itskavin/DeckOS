@@ -5,6 +5,7 @@ import 'package:deckos/src/stream_deck/actions/action_catalog.dart';
 import 'package:deckos/src/stream_deck/actions/action_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../ai_limits/ai_provider_style.dart';
 import '../buttons/colors.dart';
 import 'dynamic_deck_button.dart';
 import 'editor/info_section.dart';
@@ -266,6 +267,14 @@ class ButtonPropertyPanelState extends State<ButtonPropertyPanel> {
                     savedType: widget.button.dynamicType,
                     remote: _remote,
                     onChanged: (type, params) => setState(() {
+                      // New AI Limits tiles default to a readable 2×1 span; existing
+                      // tiles always keep their saved span untouched.
+                      if (widget.button.id.isEmpty &&
+                          type == aiLimitsDynamicType &&
+                          _infoType != aiLimitsDynamicType &&
+                          _columnSpan == 1) {
+                        _columnSpan = 2;
+                      }
                       _infoType = type;
                       _infoParams = params;
                     }),

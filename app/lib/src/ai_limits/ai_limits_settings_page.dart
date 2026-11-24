@@ -84,6 +84,7 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
       MaterialPageRoute(
         builder: (_) => _AiLimitsSourceWizardPage(
           capabilities: snap?.capabilities ?? const AiLimitsCapabilities(),
+          existingSources: snap?.sources ?? const [],
           editing: editing,
           initialKind: initialKind,
         ),
@@ -294,7 +295,7 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
         bottom: PrimaryButton(
           label: sources.isEmpty
               ? tr('Conectar uma fonte')
-              : tr('Adicionar fonte'),
+              : tr('Conectar conta'),
           icon: Icons.add_rounded,
           expand: true,
           onPressed: () => _openOnboardingWizard(),
@@ -313,14 +314,32 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
               ),
             ),
           if (error != null)
-            AppleBanner(
-              tone: BannerTone.warning,
-              message: error,
-              margin: const EdgeInsets.fromLTRB(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
                 AppleSpacing.screen,
                 0,
                 AppleSpacing.screen,
                 AppleSpacing.md,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AppleBanner(
+                    tone: BannerTone.warning,
+                    message: error,
+                    margin: EdgeInsets.zero,
+                  ),
+                  const SizedBox(height: AppleSpacing.xs),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: SecondaryButton(
+                      label: tr('Tentar novamente'),
+                      icon: Icons.refresh_rounded,
+                      compact: true,
+                      onPressed: () => _store.load(),
+                    ),
+                  ),
+                ],
               ),
             ),
           if (loading)
@@ -618,6 +637,19 @@ class _SourceRow extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (source.status == 'auth_required')
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: c.red,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                onPressed: onEdit,
+                child: Text(tr('Corrigir chave')),
+              ),
+            ),
           if (onSetup != null)
             IconButton(
               tooltip: tr('Configuração do hook'),
@@ -850,7 +882,13 @@ class _DetectedSection extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  t.source == null ? tr('Configurar') : st.label,
+                  t.source == null
+                      ? (t.kind == 'codex_local'
+                          ? tr('Conexão rápida')
+                          : t.kind == 'claude_statusline'
+                              ? tr('Falta hook')
+                              : tr('Configurar'))
+                      : st.label,
                   style: type.caption2.copyWith(color: color, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -866,6 +904,7 @@ class _DetectedSection extends StatelessWidget {
 /// Easy step-by-step onboarding & source edit screen.
 class _AiLimitsSourceWizardPage extends StatefulWidget {
   final AiLimitsCapabilities capabilities;
+  final List<AiLimitsSource> existingSources;
   final AiLimitsSource? editing;
 
   /// Preselected source kind (a tool found on the PC), skipping the picker.
@@ -873,6 +912,7 @@ class _AiLimitsSourceWizardPage extends StatefulWidget {
 
   const _AiLimitsSourceWizardPage({
     required this.capabilities,
+    this.existingSources = const [],
     this.editing,
     this.initialKind,
   });
@@ -1174,58 +1214,144 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
     final detected = widget.capabilities.detected;
 
     if (_selectedKind == null) {
+      final detectedKinds = _kinds
+          .where((k) => _isRecommended(k.kind, detected))
+          .toList();
+      final otherKinds = _kinds
+          .where((k) => !_isRecommended(k.kind, detected))
+          .toList();
+      AiLimitsSource? existingOf(String kind) =>
+          widget.existingSources.where((s) => s.kind == kind).firstOrNull;
+
+      Widget kindRow(AiLimitsSourceKindCapability cap) {
+        final existing = existingOf(cap.kind);
+        final recommended = _isRecommended(cap.kind, detected);
+        final String? badgeLabel;
+        final Color badgeColor;
+        if (existing != null) {
+          badgeLabel = existing.isConnected
+              ? tr('Já conectado')
+              : (existing.status == 'setup_required'
+                  ? tr('Falta hook')
+                  : tr('Configurado'));
+          badgeColor = existing.isConnected ? c.green : c.orange;
+        } else if (recommended) {
+          badgeLabel = cap.kind == 'codex_local'
+              ? tr('Conexão rápida')
+              : cap.kind == 'claude_statusline'
+                  ? tr('Falta hook')
+                  : tr('Detectado');
+          badgeColor = cap.kind == 'claude_statusline' ? c.orange : c.green;
+        } else {
+          badgeLabel = null;
+          badgeColor = c.green;
+        }
+
+        return ListRow(
+          leading: ListRowIcon(
+            _sourceIcon(cap.kind),
+            color: _sourceColor(c, cap.kind),
+          ),
+          title: cap.title,
+          subtitle: _friendlyPickerSubtitle(cap, detected, existing),
+          trailing: badgeLabel != null
+              ? Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withValues(alpha: c.isDark ? 0.20 : 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    badgeLabel,
+                    style: type.caption2.copyWith(
+                      color: badgeColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              : null,
+          chevron: true,
+          onTap: () => _pickKind(cap),
+        );
+      }
+
       return SettingsScaffold(
-        title: tr('Escolher fonte'),
-        subtitle: tr('Conecte ferramentas locais já instaladas no PC.'),
+        title: tr('Conectar conta'),
+        subtitle: tr('Escolha o serviço que você já usa no PC — sem senha de navegador.'),
         largeTitle: false,
         maxWidth: 620,
         children: [
-          InsetGroupedSection(
-            header: tr('Fontes compatíveis'),
-            footer: tr(
-              'O DeckOS usa apenas interfaces oficiais locais e leitura passiva, sem consultas não documentadas.',
+          if (detectedKinds.isNotEmpty)
+            InsetGroupedSection(
+              header: tr('Pronto neste PC'),
+              footer: tr(
+                'Ferramentas detectadas no PC conectado. Limites passivos aparecem automaticamente após o uso normal da CLI.',
+              ),
+              children: [
+                for (final cap in detectedKinds) kindRow(cap),
+              ],
             ),
-            children: [
-              for (final cap in _kinds)
-                ListRow(
-                  leading: ListRowIcon(
-                    _sourceIcon(cap.kind),
-                    color: _sourceColor(c, cap.kind),
-                  ),
-                  title: cap.title,
-                  subtitle: _capabilitySubtitle(cap, detected),
-                  trailing: _isRecommended(cap.kind, detected)
-                      ? Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: c.green.withValues(alpha: c.isDark ? 0.20 : 0.14),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            tr('Detectado'),
-                            style: type.caption2.copyWith(
-                              color: c.green,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        )
-                      : null,
-                  chevron: true,
-                  onTap: () => _pickKind(cap),
-                ),
-            ],
-          ),
+          if (otherKinds.isNotEmpty)
+            InsetGroupedSection(
+              header: detectedKinds.isNotEmpty
+                  ? tr('Outros provedores e atalhos')
+                  : tr('Fontes compatíveis'),
+              footer: tr(
+                'O DeckOS usa apenas interfaces oficiais locais e leitura passiva, sem consultas não documentadas.',
+              ),
+              children: [
+                for (final cap in otherKinds) kindRow(cap),
+              ],
+            ),
         ],
       );
     }
 
     final kind = _selectedKind!;
     final cap = _currentKindInfo;
+    final existingSameKind = !_isEditing
+        ? widget.existingSources.where((s) => s.kind == kind).firstOrNull
+        : null;
+
+    final compactActions = MediaQuery.sizeOf(context).width < 380;
 
     return SettingsScaffold(
       title: _isEditing ? tr('Editar fonte') : (cap?.title ?? kind),
       largeTitle: false,
       maxWidth: 620,
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: Text(tr('Cancelar')),
+        ),
+      ],
+      bottom: Row(
+        children: [
+          if (cap?.supportsTestConnection ?? true) ...[
+            Expanded(
+              child: SecondaryButton(
+                label: _testing ? tr('Testando…') : tr('Testar conexão'),
+                icon: Icons.network_check_rounded,
+                compact: compactActions,
+                expand: true,
+                onPressed: (_testing || _saving || _isAuthRetryBlocked)
+                    ? null
+                    : _testConnection,
+              ),
+            ),
+            const SizedBox(width: AppleSpacing.sm),
+          ],
+          Expanded(
+            child: PrimaryButton(
+              label: _isEditing ? tr('Salvar alterações') : tr('Salvar fonte'),
+              loading: _saving,
+              compact: compactActions,
+              expand: true,
+              onPressed: (_testing || _saving) ? null : _save,
+            ),
+          ),
+        ],
+      ),
       children: [
         if (_notice != null)
           AppleBanner(
@@ -1239,6 +1365,58 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
               AppleSpacing.md,
             ),
           ),
+        if (existingSameKind != null)
+          AppleBanner(
+            tone: BannerTone.info,
+            message: tr(
+              'Você já tem "{name}" conectado. Adicione outro apenas se usar uma pasta ou proxy separado.',
+              {'name': existingSameKind.label},
+            ),
+            margin: const EdgeInsets.fromLTRB(
+              AppleSpacing.screen,
+              0,
+              AppleSpacing.screen,
+              AppleSpacing.md,
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppleSpacing.screen,
+            0,
+            AppleSpacing.screen,
+            AppleSpacing.sm,
+          ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppleSpacing.md,
+              vertical: AppleSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: _sourceColor(c, kind).withValues(alpha: c.isDark ? 0.14 : 0.08),
+              borderRadius: BorderRadius.circular(AppleRadii.md),
+              border: Border.all(
+                color: _sourceColor(c, kind).withValues(alpha: c.isDark ? 0.28 : 0.18),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  _sourceIcon(kind),
+                  size: 18,
+                  color: _sourceColor(c, kind),
+                ),
+                const SizedBox(width: AppleSpacing.sm),
+                Expanded(
+                  child: Text(
+                    _kindIntroText(kind),
+                    style: type.caption1.copyWith(color: c.label),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
         InsetGroupedSection(
           header: tr('Configuração'),
           footer: _kindHelpFooter(kind, widget.capabilities.platform),
@@ -1276,59 +1454,27 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
                   ),
                 ),
             ],
-            if (kind == 'codex_local') ...[
-              ListRow(
-                title: tr('Modo de leitura'),
-                value: _codexMode == 'log_only'
-                    ? tr('Somente registros locais')
-                    : tr('RPC oficial + fallback'),
-                chevron: true,
-                onTap: () async {
-                  final picked = await showChoiceSheet<String>(
-                    context: context,
-                    title: tr('Modo de leitura'),
-                    selected: _codexMode,
-                    choices: [
-                      Choice(
-                        'rpc_with_log_fallback',
-                        tr('RPC oficial + fallback'),
-                        subtitle: tr('Usa codex app-server (sem inferência) com fallback local.'),
-                      ),
-                      Choice(
-                        'log_only',
-                        tr('Somente registros locais'),
-                        subtitle: tr('Lê apenas ~/.codex/sessions sem abrir subprocesso.'),
-                      ),
-                    ],
-                  );
-                  if (picked != null && mounted) {
-                    setState(() => _codexMode = picked);
-                  }
-                },
-              ),
-            ],
             if (kind == 'manual_dashboard') ...[
-              ListRow(
-                title: tr('Serviço'),
-                value: AiProviderStyle.resolve(_manualProvider).displayName,
-                chevron: true,
-                onTap: () async {
-                  final picked = await showChoiceSheet<String>(
-                    context: context,
-                    title: tr('Serviço'),
-                    selected: _manualProvider,
-                    choices: [
-                      for (final p in _manualProviders)
-                        Choice(p.$1, p.$2, subtitle: p.$3),
-                    ],
-                  );
-                  if (picked != null && mounted) {
-                    setState(() {
-                      _manualProvider = picked;
-                      _dashboardCtrl.text = _defaultDashboardUrl(picked);
-                    });
-                  }
-                },
+              Padding(
+                padding: const EdgeInsets.all(AppleSpacing.md),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final p in _manualProviders)
+                      ChoiceChip(
+                        label: Text(p.$2),
+                        selected: _manualProvider == p.$1,
+                        onSelected: (_) => setState(() {
+                          _manualProvider = p.$1;
+                          _dashboardCtrl.text = _defaultDashboardUrl(p.$1);
+                          if (!_isEditing) {
+                            _labelCtrl.text = p.$2;
+                          }
+                        }),
+                      ),
+                  ],
+                ),
               ),
               FormTextRow(
                 label: tr('Plano'),
@@ -1364,7 +1510,7 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
                 : null,
             children: [
               ListRow(
-                title: tr('Pasta ou perfil personalizado (opcional)'),
+                title: tr('Opções avançadas (opcional)'),
                 subtitle: tr('Para múltiplas contas em pastas separadas no PC'),
                 trailing: Icon(
                   _showAdvanced ? Icons.expand_less_rounded : Icons.expand_more_rounded,
@@ -1373,6 +1519,36 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
                 onTap: () => setState(() => _showAdvanced = !_showAdvanced),
               ),
               if (_showAdvanced) ...[
+                if (kind == 'codex_local')
+                  ListRow(
+                    title: tr('Modo de leitura'),
+                    value: _codexMode == 'log_only'
+                        ? tr('Somente registros locais')
+                        : tr('RPC oficial + fallback'),
+                    chevron: true,
+                    onTap: () async {
+                      final picked = await showChoiceSheet<String>(
+                        context: context,
+                        title: tr('Modo de leitura'),
+                        selected: _codexMode,
+                        choices: [
+                          Choice(
+                            'rpc_with_log_fallback',
+                            tr('RPC oficial + fallback'),
+                            subtitle: tr('Usa codex app-server (sem inferência) com fallback local.'),
+                          ),
+                          Choice(
+                            'log_only',
+                            tr('Somente registros locais'),
+                            subtitle: tr('Lê apenas ~/.codex/sessions sem abrir subprocesso.'),
+                          ),
+                        ],
+                      );
+                      if (picked != null && mounted) {
+                        setState(() => _codexMode = picked);
+                      }
+                    },
+                  ),
                 if (kind == 'codex_local' || kind == 'claude_statusline')
                   FormTextRow(
                     label: kind == 'codex_local' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR',
@@ -1404,6 +1580,45 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
             }),
             footer: _testResult!.capabilitiesNote,
             children: [
+              if (!_isEditing && _testResult!.accounts.length > 1)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppleSpacing.md,
+                    AppleSpacing.xs,
+                    AppleSpacing.sm,
+                    0,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          tr('{n} selecionadas para o deck', {
+                            'n': '${_selectedPreviewAccountIds.length}',
+                          }),
+                          style: type.caption1.copyWith(color: c.secondaryLabel),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => setState(() {
+                          final allIds = _testResult!.accounts.map((a) => a.id).toSet();
+                          if (_selectedPreviewAccountIds.length == allIds.length) {
+                            _selectedPreviewAccountIds.clear();
+                          } else {
+                            _selectedPreviewAccountIds
+                              ..clear()
+                              ..addAll(allIds);
+                          }
+                        }),
+                        child: Text(
+                          _selectedPreviewAccountIds.length ==
+                                  _testResult!.accounts.length
+                              ? tr('Desmarcar todas')
+                              : tr('Selecionar todas'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               for (final a in _testResult!.accounts)
                 ListRow(
                   leading: ListRowIcon(
@@ -1453,30 +1668,6 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
               style: type.caption1.copyWith(color: c.secondaryLabel),
             ),
           ),
-        FormActions(
-          children: [
-            if (cap?.supportsTestConnection ?? true)
-              SecondaryButton(
-                label: _testing ? tr('Testando…') : tr('Testar conexão'),
-                icon: Icons.network_check_rounded,
-                expand: true,
-                onPressed: (_testing || _saving || _isAuthRetryBlocked)
-                    ? null
-                    : _testConnection,
-              ),
-            PrimaryButton(
-              label: _isEditing ? tr('Salvar alterações') : tr('Salvar fonte'),
-              loading: _saving,
-              expand: true,
-              onPressed: (_testing || _saving) ? null : _save,
-            ),
-            SecondaryButton(
-              label: tr('Cancelar'),
-              expand: true,
-              onPressed: _saving ? null : () => Navigator.of(context).pop(),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -1489,15 +1680,51 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
         _ => false,
       };
 
-  static String _capabilitySubtitle(
+  static String _friendlyPickerSubtitle(
     AiLimitsSourceKindCapability cap,
     AiLimitsDetectedEnvironment d,
+    AiLimitsSource? existing,
   ) {
-    if (cap.kind == 'cliproxy_passive' && d.cliProxyReachable) {
-      return '${d.cliProxySuggestedUrl ?? 'http://127.0.0.1:8317'} · ${cap.description}';
+    if (existing != null && existing.statusMessage != null && existing.statusMessage!.isNotEmpty) {
+      return existing.statusMessage!;
     }
-    return cap.description;
+    return switch (cap.kind) {
+      'codex_local' => d.codexCliAvailable
+          ? tr('Usa sua sessão já conectada do Codex CLI neste PC — 1 toque.')
+          : tr('Lê seus limites do Codex diretamente no PC sem gastar cota.'),
+      'claude_statusline' => d.claudeStatusLineConfigured
+          ? tr('Hook do Claude Code detectado — atualiza passivamente ao usar.')
+          : tr('Instala um hook passivo seguro preservando seu statusLine atual.'),
+      'cliproxy_passive' => d.cliProxyReachable
+          ? tr('Detectado em {url} · mostra várias contas sem chamadas extras.', {
+              'url': d.cliProxySuggestedUrl ?? 'http://127.0.0.1:8317',
+            })
+          : tr('Conecta ao seu CLIProxyAPI local para várias contas de Claude e Codex.'),
+      'gemini_local_otel' =>
+        tr('Conta requisições diárias locais do Gemini CLI via OpenTelemetry.'),
+      'manual_dashboard' =>
+        tr('Atalho direto para Antigravity, Cursor, Copilot, Windsurf ou Gemini Web.'),
+      _ => cap.description,
+    };
   }
+
+  static String _kindIntroText(String kind) => switch (kind) {
+        'codex_local' => tr(
+            'Conecta automaticamente ao Codex CLI já autenticado neste PC. Zero prompts e zero configuração de pasta.',
+          ),
+        'claude_statusline' => tr(
+            'Salve primeiro e instale o hook passivo no próximo passo. Os limites aparecem automaticamente no próximo turno normal do Claude Code.',
+          ),
+        'cliproxy_passive' => tr(
+            'Lê apenas cabeçalhos já capturados pelo seu CLIProxyAPI local. Contas sem tráfego recente começam em "Aguardando uso" até você usá-las.',
+          ),
+        'gemini_local_otel' => tr(
+            'Lê a telemetria oficial local do Gemini CLI neste PC (contagem diária, sem inventar limites de 5h ou semanais).',
+          ),
+        _ => tr(
+            'Escolha sua assinatura para criar um cartão com atalho rápido para o painel oficial de limites.',
+          ),
+      };
 
   static String _kindHelpFooter(String kind, String platform) => switch (kind) {
         'cliproxy_passive' => tr(

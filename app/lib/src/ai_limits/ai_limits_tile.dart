@@ -15,7 +15,8 @@ import 'ai_provider_style.dart';
 
 /// Real live-bound AI quota tile drawn inside DeckOS's native [DeckTile] frame so
 /// squircle geometry, glass/rim, shadows, font, themes, and press animations match
-/// every other deck tile while supporting wide (2×1), square (1×1), and large (2×2) spans.
+/// every other deck tile while adapting cleanly across spacious (2×1, 2×2), compact
+/// horizontal, and square (1×1) spans.
 class AiLimitsTile extends StatefulWidget {
   final DeckButton button;
   final VoidCallback onTap;
@@ -113,6 +114,7 @@ class _AiLimitsTileBody extends StatelessWidget {
         badge: tr('Configurar'),
         badgeColor: dark ? const Color(0xFF60A5FA) : const Color(0xFF0369A1),
         message: tr('Conectar uma fonte'),
+        hint: tr('Toque para escolher uma conta'),
       );
     }
 
@@ -147,6 +149,7 @@ class _AiLimitsTileBody extends StatelessWidget {
           badge: tr('Offline'),
           badgeColor: DeckTileColors.orange,
           message: tr('Sem resposta do PC'),
+          hint: tr('Toque para tentar novamente'),
         );
       }
       return _StatusTileLayout(
@@ -162,29 +165,25 @@ class _AiLimitsTileBody extends StatelessWidget {
     }
 
     final acct = account!;
-    final title = (customLabel?.isNotEmpty ?? false)
-        ? customLabel!
-        : acct.providerLabel;
-    final subtitleParts = <String>[
-      if (acct.alias.isNotEmpty &&
-          acct.alias.toLowerCase() != title.toLowerCase())
-        acct.alias,
-      if (acct.plan != null && acct.plan!.isNotEmpty) acct.plan!,
-    ];
-    final subtitle = subtitleParts.join(' · ');
-
-    // Separate connection health dot from quota freshness.
-    final Color dotColor = _connectionDotColor(acct, dark);
+    final title = (customLabel?.isNotEmpty ?? false) ? customLabel! : acct.providerLabel;
+    final aliasText = (acct.alias.isNotEmpty &&
+            acct.alias.toLowerCase() != title.toLowerCase())
+        ? acct.alias
+        : '';
+    final planText = (acct.plan != null && acct.plan!.trim().isNotEmpty)
+        ? acct.plan!.trim()
+        : null;
+    final dotColor = _connectionDotColor(acct, dark);
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxW = constraints.maxWidth.isFinite ? constraints.maxWidth : 140.0;
+        final maxW = constraints.maxWidth.isFinite ? constraints.maxWidth : 280.0;
         final maxH = constraints.maxHeight.isFinite ? constraints.maxHeight : 140.0;
-        final isWide = maxW >= maxH * 1.32 && maxW >= 180;
-        final isTall = maxH >= 175 && maxW >= 180;
-        final compact = config.isCompact || (!isWide && maxW < 150);
+        final isSquareOrSmall = maxW < 175 || (maxW < maxH * 1.22 && maxW < 215);
+        final isRoomy = maxH >= 195 && maxW >= 220;
+        final isSpacious = !isSquareOrSmall && maxW >= 215 && maxH >= 104 && !config.isCompact;
 
-        final maxWindows = isTall ? 3 : 2;
+        final maxWindows = isRoomy ? 3 : 2;
         final windows = acct.selectWindows(
           config.preferredWindowKinds,
           maxCount: maxWindows,
@@ -192,120 +191,59 @@ class _AiLimitsTileBody extends StatelessWidget {
         );
         final headerPill = _headerPillFor(acct, config, windows, dark, fg);
 
-        final rawTextScale =
-            (MediaQuery.textScalerOf(context).scale(14) / 14).clamp(1.0, 2.0);
-        final clampedScale = math.min(rawTextScale, 1.22);
-        final minTargetW = isWide ? 220.0 : 132.0;
-        final contentWidth = math.max(maxW, minTargetW * clampedScale);
+        if (isSquareOrSmall) {
+          return _SquareAiTile(
+            acct: acct,
+            config: config,
+            windows: windows,
+            icon: style.icon,
+            accent: accent,
+            dark: dark,
+            fg: fg,
+            title: title,
+            aliasText: aliasText,
+            dotColor: dotColor,
+            headerPill: headerPill,
+            maxW: maxW,
+            maxH: maxH,
+          );
+        }
 
-        final padH = isWide ? 10.0 : 6.0;
-        final padV = isWide ? 8.0 : 5.0;
+        if (!isSpacious) {
+          return _CompactHorizontalAiTile(
+            acct: acct,
+            config: config,
+            windows: windows,
+            icon: style.icon,
+            accent: accent,
+            dark: dark,
+            fg: fg,
+            title: title,
+            aliasText: aliasText,
+            planText: planText,
+            dotColor: dotColor,
+            headerPill: headerPill,
+            maxW: maxW,
+            maxH: maxH,
+          );
+        }
 
-        final body = MediaQuery.withClampedTextScaling(
-          maxScaleFactor: 1.22,
-          child: SizedBox(
-            width: contentWidth,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _TileHeader(
-                    icon: style.icon,
-                    accent: accent,
-                    dark: dark,
-                    fg: fg,
-                    title: title,
-                    subtitle: subtitle,
-                    dotColor: dotColor,
-                    pill: isWide ? headerPill : null,
-                    compact: compact,
-                  ),
-                  if (!isWide && headerPill != null) ...[
-                    const SizedBox(height: 3),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: _CompactBadge(
-                        text: headerPill.text,
-                        color: headerPill.color,
-                        dark: dark,
-                      ),
-                    ),
-                  ],
-                  SizedBox(height: isWide ? 8 : 6),
-                  if (!acct.enabled)
-                    _InlineNote(
-                      text: tr('Conta desativada'),
-                      color: fg.withValues(alpha: 0.56),
-                    )
-                  else if (acct.isAuthRequired)
-                    _InlineNote(
-                      text: tr('Autenticação necessária'),
-                      color: DeckTileColors.red,
-                    )
-                  else if (acct.isRateLimited)
-                    _InlineNote(
-                      text: tr('Limite de taxa (429)'),
-                      color: dark ? const Color(0xFFFFB84D) : const Color(0xFFB45309),
-                    )
-                  else if (acct.isOffline && windows.every((w) => !w.hasPercent))
-                    _InlineNote(
-                      text: tr('Não conectado'),
-                      color: fg.withValues(alpha: 0.58),
-                    )
-                  else if (windows.isEmpty)
-                    _InlineNote(
-                      text: acct.quotaStatus == 'manual_only'
-                          ? tr('Somente painel oficial')
-                          : acct.quotaStatus == 'awaiting_data'
-                              ? tr('Aguardando dados')
-                              : tr('Uso indisponível'),
-                      color: fg.withValues(alpha: 0.60),
-                    )
-                  else
-                    for (var i = 0; i < windows.length; i++) ...[
-                      if (i > 0) SizedBox(height: isWide ? 7 : 5),
-                      _LiveWindowRow(
-                        window: windows[i],
-                        showRemaining: config.showRemaining,
-                        showResetInline: config.showReset && (isWide || isTall),
-                        accountStale: acct.isStale,
-                        accent: accent,
-                        dark: dark,
-                        fg: fg,
-                        barHeight: isWide ? 6.0 : 4.5,
-                      ),
-                    ],
-                  if (isTall && acct.observedAt != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      tr('Atualizado {quando}', {
-                        'quando': formatObservedAge(acct.observedAt) ?? '',
-                      }),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 9.0,
-                        fontWeight: FontWeight.w500,
-                        color: fg.withValues(alpha: 0.48),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        );
-
-        return SizedBox(
-          width: maxW,
-          height: maxH,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.center,
-            child: body,
-          ),
+        return _SpaciousAiTile(
+          acct: acct,
+          config: config,
+          windows: windows,
+          icon: style.icon,
+          accent: accent,
+          dark: dark,
+          fg: fg,
+          title: title,
+          aliasText: aliasText,
+          planText: planText,
+          dotColor: dotColor,
+          headerPill: headerPill,
+          isRoomy: isRoomy,
+          maxW: maxW,
+          maxH: maxH,
         );
       },
     );
@@ -367,7 +305,7 @@ class _AiLimitsTileBody extends StatelessWidget {
       if (reset != null) {
         return (
           text: tr('Zera {t}', {'t': reset}),
-          color: fg.withValues(alpha: 0.76),
+          color: fg.withValues(alpha: 0.78),
           icon: CupertinoIcons.clock,
         );
       }
@@ -376,32 +314,337 @@ class _AiLimitsTileBody extends StatelessWidget {
   }
 }
 
-class _TileHeader extends StatelessWidget {
+/// Picks the single most urgent / constrained window for compact/square tiles
+/// (highest used %, or first available window), inspired by CodexBar & Quotio.
+AiLimitsWindow? _prioritizedWindow(List<AiLimitsWindow> windows) {
+  if (windows.isEmpty) return null;
+  AiLimitsWindow? bestPct;
+  for (final w in windows) {
+    if (!w.hasPercent) continue;
+    if (bestPct == null || w.effectiveUsedPercent! > bestPct.effectiveUsedPercent!) {
+      bestPct = w;
+    }
+  }
+  if (bestPct != null) return bestPct;
+  for (final w in windows) {
+    if (w.hasNativeCount) return w;
+  }
+  return windows.first;
+}
+
+Color _meterColor({
+  required double usedPercent,
+  required bool stale,
+  required bool blocked,
+  required Color accent,
+  required bool dark,
+}) {
+  final amber = dark ? const Color(0xFFFFB84D) : const Color(0xFFD97706);
+  if (stale) return amber;
+  if (blocked || usedPercent >= 90) return DeckTileColors.red;
+  if (usedPercent >= 70) return amber;
+  return accent;
+}
+
+Color _valueColor({
+  required double usedPercent,
+  required bool stale,
+  required bool blocked,
+  required Color fg,
+  required bool dark,
+}) {
+  final amber = dark ? const Color(0xFFFFB84D) : const Color(0xFFB45309);
+  if (stale) return amber;
+  if (blocked || usedPercent >= 90) return DeckTileColors.red;
+  if (usedPercent >= 75) return amber;
+  return fg;
+}
+
+/// Spacious card layout for 2×1, 2×2, tablet, and full-width portrait cards.
+/// Fills the tile cleanly with generous typography, flush-right bold percentages,
+/// thick capsule bars, and clean single-strip status messaging when no limits exist yet.
+class _SpaciousAiTile extends StatelessWidget {
+  final AiLimitsAccount acct;
+  final AiLimitsTileConfig config;
+  final List<AiLimitsWindow> windows;
   final IconData icon;
   final Color accent;
   final bool dark;
   final Color fg;
   final String title;
-  final String subtitle;
+  final String aliasText;
+  final String? planText;
   final Color dotColor;
-  final ({String text, Color color, IconData? icon})? pill;
-  final bool compact;
+  final ({String text, Color color, IconData? icon})? headerPill;
+  final bool isRoomy;
+  final double maxW;
+  final double maxH;
 
-  const _TileHeader({
+  const _SpaciousAiTile({
+    required this.acct,
+    required this.config,
+    required this.windows,
     required this.icon,
     required this.accent,
     required this.dark,
     required this.fg,
     required this.title,
-    required this.subtitle,
+    required this.aliasText,
+    required this.planText,
     required this.dotColor,
-    required this.pill,
-    required this.compact,
+    required this.headerPill,
+    required this.isRoomy,
+    required this.maxW,
+    required this.maxH,
   });
 
   @override
   Widget build(BuildContext context) {
-    final badgeSize = compact ? 20.0 : 26.0;
+    final tight = maxH < 132;
+    final amber = dark ? const Color(0xFFFFB84D) : const Color(0xFFB45309);
+    final padH = isRoomy ? 6.0 : (tight ? 2.0 : 4.0);
+    final padV = isRoomy ? 6.0 : (tight ? 1.0 : 3.0);
+
+    final pctWindows = windows.where((w) => w.hasPercent).toList();
+    final nativeWindows = windows.where((w) => w.hasNativeCount).toList();
+    final naWindows = windows.where((w) => w.isNotApplicable).toList();
+
+    Widget buildBody() {
+      if (!acct.enabled) {
+        return _StatusStrip(
+          icon: CupertinoIcons.pause_circle_fill,
+          color: fg.withValues(alpha: 0.56),
+          fg: fg,
+          dark: dark,
+          title: tr('Conta desativada'),
+          subtitle: tr('Toque para ativar em Limites de IA'),
+          tight: tight,
+        );
+      }
+      if (acct.isAuthRequired) {
+        return _StatusStrip(
+          icon: CupertinoIcons.lock_fill,
+          color: DeckTileColors.red,
+          fg: fg,
+          dark: dark,
+          title: tr('Autenticação necessária'),
+          subtitle: tr('Toque para corrigir em Limites de IA'),
+          tight: tight,
+        );
+      }
+      if (acct.isOffline && pctWindows.isEmpty) {
+        return _StatusStrip(
+          icon: CupertinoIcons.wifi_slash,
+          color: amber,
+          fg: fg,
+          dark: dark,
+          title: tr('Não conectado'),
+          subtitle: tr('Verifique o PC ou toque para detalhes'),
+          tight: tight,
+        );
+      }
+      if (acct.isRateLimited && pctWindows.isEmpty) {
+        final until = formatAiResetTime(acct.cooldownUntil, compact: true);
+        return _StatusStrip(
+          icon: CupertinoIcons.clock_fill,
+          color: amber,
+          fg: fg,
+          dark: dark,
+          title: tr('Limite de taxa (429)'),
+          subtitle: until != null
+              ? tr('Em espera · {t}', {'t': until})
+              : tr('Aguardando liberação do provedor'),
+          tight: tight,
+        );
+      }
+
+      // Active percentage windows (always shown even when blocked/429/stale so real
+      // numbers & reset timers stay visible at a glance).
+      if (pctWindows.isNotEmpty) {
+        // Single active percent window (e.g. Codex Pro with No 5h limit, or single-window tile).
+        if (pctWindows.length == 1 && nativeWindows.isEmpty) {
+          final w = pctWindows.first;
+          final naNote = naWindows.isNotEmpty
+              ? (naWindows.first.kind == 'five_hour'
+                  ? tr('Sem limite 5h')
+                  : tr('Não aplicável'))
+              : null;
+          return _HeroPercentMeter(
+            window: w,
+            showRemaining: config.showRemaining,
+            showReset: config.showReset,
+            accountStale: acct.isStale,
+            accountBlocked: acct.isUsageBlocked,
+            accent: accent,
+            dark: dark,
+            fg: fg,
+            tight: tight,
+            isRoomy: isRoomy,
+            secondaryNote: naNote,
+          );
+        }
+
+        // Two or three windows: generous stacked full-width meters.
+        final displayList = [
+          for (final w in windows)
+            if (w.hasPercent || w.hasNativeCount || w.isNotApplicable) w,
+        ];
+        final rowsToShow = displayList.isNotEmpty ? displayList : pctWindows;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < rowsToShow.length; i++) ...[
+              if (i > 0) SizedBox(height: isRoomy ? 12 : (tight ? 6 : 9)),
+              _WideWindowMeter(
+                window: rowsToShow[i],
+                showRemaining: config.showRemaining,
+                showResetInline: config.showReset,
+                accountStale: acct.isStale,
+                accountBlocked: acct.isUsageBlocked,
+                accent: accent,
+                dark: dark,
+                fg: fg,
+                tight: tight,
+                isRoomy: isRoomy,
+              ),
+            ],
+          ],
+        );
+      }
+
+      // Native non-percent count (e.g. Gemini CLI daily local requests, Copilot credits).
+      if (nativeWindows.isNotEmpty) {
+        final w = nativeWindows.first;
+        return _NativeCountStrip(
+          window: w,
+          accent: accent,
+          dark: dark,
+          fg: fg,
+          tight: tight,
+        );
+      }
+
+      // Honest waiting / unavailable / manual dashboard state (single clean strip,
+      // never double empty hairlines and never fake 0%).
+      if (acct.quotaStatus == 'awaiting_data') {
+        return _StatusStrip(
+          icon: CupertinoIcons.waveform_path_ecg,
+          color: accent,
+          fg: fg,
+          dark: dark,
+          title: tr('Aguardando uso'),
+          subtitle: tr('Os limites aparecem após o uso normal da CLI'),
+          tight: tight,
+        );
+      }
+      final hasDashboard = acct.dashboardUrl != null && acct.dashboardUrl!.isNotEmpty;
+      return _StatusStrip(
+        icon: hasDashboard
+            ? CupertinoIcons.arrow_up_right_square
+            : CupertinoIcons.info_circle,
+        color: amber,
+        fg: fg,
+        dark: dark,
+        title: tr('Indisponível'),
+        subtitle: acct.quotaStatus == 'manual_only' || hasDashboard
+            ? tr('Toque para abrir o painel oficial')
+            : tr('Nenhuma janela de uso reportada ainda'),
+        tight: tight,
+      );
+    }
+
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.26,
+      child: SizedBox(
+        width: maxW,
+        height: maxH,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _SpaciousHeader(
+                icon: icon,
+                accent: accent,
+                dark: dark,
+                fg: fg,
+                title: title,
+                aliasText: aliasText,
+                planText: planText,
+                dotColor: dotColor,
+                pill: headerPill,
+                tight: tight,
+                isRoomy: isRoomy,
+              ),
+              Flexible(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SingleChildScrollView(
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: buildBody(),
+                  ),
+                ),
+              ),
+              if (isRoomy && acct.observedAt != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    tr('Atualizado {quando}', {
+                      'quando': formatObservedAge(acct.observedAt) ?? '',
+                    }),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11.0,
+                      fontWeight: FontWeight.w500,
+                      color: fg.withValues(alpha: 0.50),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpaciousHeader extends StatelessWidget {
+  final IconData icon;
+  final Color accent;
+  final bool dark;
+  final Color fg;
+  final String title;
+  final String aliasText;
+  final String? planText;
+  final Color dotColor;
+  final ({String text, Color color, IconData? icon})? pill;
+  final bool tight;
+  final bool isRoomy;
+
+  const _SpaciousHeader({
+    required this.icon,
+    required this.accent,
+    required this.dark,
+    required this.fg,
+    required this.title,
+    required this.aliasText,
+    required this.planText,
+    required this.dotColor,
+    required this.pill,
+    required this.tight,
+    required this.isRoomy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final badgeSize = isRoomy ? 40.0 : (tight ? 30.0 : 35.0);
+    final iconSize = isRoomy ? 20.0 : (tight ? 15.5 : 18.0);
+    final titleSize = isRoomy ? 17.5 : (tight ? 14.0 : 16.0);
+    final subSize = isRoomy ? 12.5 : (tight ? 10.5 : 11.8);
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -409,16 +652,23 @@ class _TileHeader extends StatelessWidget {
           width: badgeSize,
           height: badgeSize,
           decoration: BoxDecoration(
-            color: accent.withValues(alpha: dark ? 0.22 : 0.14),
-            borderRadius: BorderRadius.circular(compact ? 5.5 : 7.5),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                accent.withValues(alpha: dark ? 0.30 : 0.20),
+                accent.withValues(alpha: dark ? 0.14 : 0.09),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(isRoomy ? 11.0 : 9.5),
             border: Border.all(
-              color: accent.withValues(alpha: dark ? 0.34 : 0.24),
-              width: 0.8,
+              color: accent.withValues(alpha: dark ? 0.40 : 0.28),
+              width: 0.9,
             ),
           ),
-          child: Icon(icon, size: compact ? 11.5 : 14.5, color: accent),
+          child: Icon(icon, size: iconSize, color: accent),
         ),
-        SizedBox(width: compact ? 5 : 7),
+        SizedBox(width: tight ? 8 : 10),
         Expanded(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -433,33 +683,54 @@ class _TileHeader extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: compact ? 11.0 : 12.5,
+                        fontSize: titleSize,
                         fontWeight: FontWeight.w700,
-                        letterSpacing: -0.2,
+                        letterSpacing: -0.3,
                         height: 1.1,
                         color: fg,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 5),
+                  const SizedBox(width: 6),
                   Container(
-                    width: 6,
-                    height: 6,
+                    width: 7,
+                    height: 7,
                     decoration: BoxDecoration(
                       color: dotColor,
                       shape: BoxShape.circle,
                     ),
                   ),
+                  if (planText != null) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: dark ? 0.20 : 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        planText!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: tight ? 9.5 : 10.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.05,
+                          color: accent,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
-              if (subtitle.isNotEmpty) ...[
-                const SizedBox(height: 1),
+              if (aliasText.isNotEmpty) ...[
+                const SizedBox(height: 2),
                 Text(
-                  subtitle,
+                  aliasText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: compact ? 8.8 : 9.8,
+                    fontSize: subSize,
                     fontWeight: FontWeight.w500,
                     height: 1.1,
                     color: fg.withValues(alpha: 0.62),
@@ -470,15 +741,983 @@ class _TileHeader extends StatelessWidget {
           ),
         ),
         if (pill != null) ...[
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           _HeaderPill(
             text: pill!.text,
             color: pill!.color,
             icon: pill!.icon,
             dark: dark,
+            tight: tight,
           ),
         ],
       ],
+    );
+  }
+}
+
+class _WideWindowMeter extends StatelessWidget {
+  final AiLimitsWindow window;
+  final bool showRemaining;
+  final bool showResetInline;
+  final bool accountStale;
+  final bool accountBlocked;
+  final Color accent;
+  final bool dark;
+  final Color fg;
+  final bool tight;
+  final bool isRoomy;
+
+  const _WideWindowMeter({
+    required this.window,
+    required this.showRemaining,
+    required this.showResetInline,
+    required this.accountStale,
+    required this.accountBlocked,
+    required this.accent,
+    required this.dark,
+    required this.fg,
+    required this.tight,
+    required this.isRoomy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final stale = accountStale || window.isEffectivelyStale();
+    final label = _windowLabelWithPool(window, _windowShortLabel(window));
+    final labelSize = isRoomy ? 14.0 : (tight ? 12.0 : 13.0);
+    final resetSize = isRoomy ? 12.0 : (tight ? 10.5 : 11.5);
+    final pctSize = isRoomy ? 20.0 : (tight ? 15.0 : 18.0);
+    final suffixSize = isRoomy ? 12.0 : (tight ? 10.5 : 11.5);
+    final barHeight = isRoomy ? 10.0 : (tight ? 7.0 : 8.5);
+    final trackColor = fg.withValues(alpha: dark ? 0.14 : 0.11);
+
+    final resetInline = showResetInline && window.hasPercent && !window.isPastReset()
+        ? formatAiResetTime(window.resetsAt, compact: true)
+        : null;
+
+    if (window.hasPercent) {
+      final used = window.effectiveUsedPercent!;
+      final shown = showRemaining ? window.effectiveRemainingPercent! : used;
+      final rounded = shown.round();
+      final barFill = (shown / 100.0).clamp(0.0, 1.0);
+      final barCol = _meterColor(
+        usedPercent: used,
+        stale: stale,
+        blocked: accountBlocked,
+        accent: accent,
+        dark: dark,
+      );
+      final valCol = _valueColor(
+        usedPercent: used,
+        stale: stale,
+        blocked: accountBlocked,
+        fg: fg,
+        dark: dark,
+      );
+      final fullText = showRemaining
+          ? tr('{p}% livre', {'p': '$rounded'})
+          : tr('{p}% usado', {'p': '$rounded'});
+      final pctToken = '$rounded%';
+
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: labelSize,
+                          fontWeight: FontWeight.w700,
+                          height: 1.1,
+                          color: fg.withValues(alpha: 0.88),
+                        ),
+                      ),
+                    ),
+                    if (resetInline != null) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        resetInline,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: resetSize,
+                          fontWeight: FontWeight.w500,
+                          height: 1.1,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          color: fg.withValues(alpha: 0.50),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _RichPercentText(
+                fullText: fullText,
+                pctToken: pctToken,
+                pctSize: pctSize,
+                suffixSize: suffixSize,
+                color: valCol,
+                suffixColor: valCol.withValues(alpha: 0.72),
+              ),
+            ],
+          ),
+          SizedBox(height: tight ? 4 : 5),
+          CapsuleBar(
+            value: barFill,
+            color: barCol,
+            height: barHeight,
+            track: trackColor,
+          ),
+        ],
+      );
+    }
+
+    // Non-percent row (native count or not_applicable alongside another window).
+    final String valueText;
+    final Color valCol;
+    if (window.hasNativeCount) {
+      valueText = _formatNativeMetric(window);
+      valCol = dark ? const Color(0xFF60A5FA) : const Color(0xFF0369A1);
+    } else if (window.isNotApplicable) {
+      valueText = window.kind == 'five_hour'
+          ? tr('Sem limite 5h')
+          : tr('Não aplicável');
+      valCol = fg.withValues(alpha: 0.52);
+    } else {
+      valueText = tr('Indisponível');
+      valCol = dark ? const Color(0xFFD6A86E) : const Color(0xFF9A6700);
+    }
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: labelSize,
+              fontWeight: FontWeight.w600,
+              color: fg.withValues(alpha: 0.72),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          valueText,
+          maxLines: 1,
+          style: TextStyle(
+            fontSize: labelSize,
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
+            color: valCol,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Prominent single-window hero meter (e.g. Codex Pro with weekly-only pool, or
+/// single-window tile configuration).
+class _HeroPercentMeter extends StatelessWidget {
+  final AiLimitsWindow window;
+  final bool showRemaining;
+  final bool showReset;
+  final bool accountStale;
+  final bool accountBlocked;
+  final Color accent;
+  final bool dark;
+  final Color fg;
+  final bool tight;
+  final bool isRoomy;
+  final String? secondaryNote;
+
+  const _HeroPercentMeter({
+    required this.window,
+    required this.showRemaining,
+    required this.showReset,
+    required this.accountStale,
+    required this.accountBlocked,
+    required this.accent,
+    required this.dark,
+    required this.fg,
+    required this.tight,
+    required this.isRoomy,
+    this.secondaryNote,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final used = window.effectiveUsedPercent!;
+    final shown = showRemaining ? window.effectiveRemainingPercent! : used;
+    final rounded = shown.round();
+    final stale = accountStale || window.isEffectivelyStale();
+    final label = _windowLabelWithPool(window, _windowShortLabel(window));
+    final barCol = _meterColor(
+      usedPercent: used,
+      stale: stale,
+      blocked: accountBlocked,
+      accent: accent,
+      dark: dark,
+    );
+    final valCol = _valueColor(
+      usedPercent: used,
+      stale: stale,
+      blocked: accountBlocked,
+      fg: fg,
+      dark: dark,
+    );
+    final resetInline = showReset && !window.isPastReset()
+        ? formatAiResetTime(window.resetsAt, compact: true)
+        : null;
+    final fullText = showRemaining
+        ? tr('{p}% livre', {'p': '$rounded'})
+        : tr('{p}% usado', {'p': '$rounded'});
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: isRoomy ? 15.0 : 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: fg.withValues(alpha: 0.88),
+                          ),
+                        ),
+                      ),
+                      if (resetInline != null) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          resetInline,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 12.0,
+                            fontWeight: FontWeight.w500,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: fg.withValues(alpha: 0.50),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (secondaryNote != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      secondaryNote!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.0,
+                        fontWeight: FontWeight.w500,
+                        color: fg.withValues(alpha: 0.52),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _RichPercentText(
+              fullText: fullText,
+              pctToken: '$rounded%',
+              pctSize: isRoomy ? 26.0 : (tight ? 20.0 : 24.0),
+              suffixSize: isRoomy ? 13.0 : 12.0,
+              color: valCol,
+              suffixColor: valCol.withValues(alpha: 0.72),
+            ),
+          ],
+        ),
+        SizedBox(height: tight ? 6 : 8),
+        CapsuleBar(
+          value: (shown / 100.0).clamp(0.0, 1.0),
+          color: barCol,
+          height: isRoomy ? 11.0 : (tight ? 8.0 : 10.0),
+          track: fg.withValues(alpha: dark ? 0.14 : 0.11),
+        ),
+      ],
+    );
+  }
+}
+
+/// Renders `"42% used"` / `"58% left"` with a large bold tabular percentage and a
+/// lighter unit suffix in one single [Text.rich] so layout is sharp and accessibility
+/// reads one natural phrase.
+class _RichPercentText extends StatelessWidget {
+  final String fullText;
+  final String pctToken;
+  final double pctSize;
+  final double suffixSize;
+  final Color color;
+  final Color suffixColor;
+
+  const _RichPercentText({
+    required this.fullText,
+    required this.pctToken,
+    required this.pctSize,
+    required this.suffixSize,
+    required this.color,
+    required this.suffixColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final idx = fullText.indexOf(pctToken);
+    final pctStyle = TextStyle(
+      fontSize: pctSize,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -0.4,
+      height: 1.0,
+      fontFeatures: const [FontFeature.tabularFigures()],
+      color: color,
+    );
+    final restStyle = TextStyle(
+      fontSize: suffixSize,
+      fontWeight: FontWeight.w600,
+      height: 1.0,
+      color: suffixColor,
+    );
+    if (idx < 0) {
+      return Text(fullText, maxLines: 1, style: pctStyle);
+    }
+    final before = fullText.substring(0, idx);
+    final after = fullText.substring(idx + pctToken.length);
+    return Text.rich(
+      TextSpan(
+        children: [
+          if (before.isNotEmpty) TextSpan(text: before, style: restStyle),
+          TextSpan(text: pctToken, style: pctStyle),
+          if (after.isNotEmpty) TextSpan(text: after, style: restStyle),
+        ],
+      ),
+      maxLines: 1,
+    );
+  }
+}
+
+class _NativeCountStrip extends StatelessWidget {
+  final AiLimitsWindow window;
+  final Color accent;
+  final bool dark;
+  final Color fg;
+  final bool tight;
+
+  const _NativeCountStrip({
+    required this.window,
+    required this.accent,
+    required this.dark,
+    required this.fg,
+    required this.tight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _windowLabelWithPool(window, _windowShortLabel(window));
+    final valueText = _formatNativeMetric(window);
+    final valueColor = dark ? const Color(0xFF60A5FA) : const Color(0xFF0369A1);
+    final barFill = window.limit != null && window.limit! > 0
+        ? (window.used! / window.limit!).clamp(0.0, 1.0)
+        : null;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: tight ? 10 : 12,
+        vertical: tight ? 8 : 10,
+      ),
+      decoration: BoxDecoration(
+        color: fg.withValues(alpha: dark ? 0.06 : 0.045),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: tight ? 12.0 : 13.0,
+                        fontWeight: FontWeight.w700,
+                        color: fg.withValues(alpha: 0.86),
+                      ),
+                    ),
+                    Text(
+                      tr('Contagem local'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.0,
+                        fontWeight: FontWeight.w500,
+                        color: fg.withValues(alpha: 0.54),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                valueText,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: tight ? 17.0 : 20.0,
+                  fontWeight: FontWeight.w800,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: valueColor,
+                ),
+              ),
+            ],
+          ),
+          if (barFill != null) ...[
+            const SizedBox(height: 6),
+            CapsuleBar(
+              value: barFill,
+              color: accent,
+              height: 7,
+              track: fg.withValues(alpha: dark ? 0.14 : 0.11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusStrip extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final Color fg;
+  final bool dark;
+  final String title;
+  final String? subtitle;
+  final bool tight;
+
+  const _StatusStrip({
+    required this.icon,
+    required this.color,
+    required this.fg,
+    required this.dark,
+    required this.title,
+    this.subtitle,
+    required this.tight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: tight ? 10 : 12,
+        vertical: tight ? 8 : 11,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: dark ? 0.13 : 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withValues(alpha: dark ? 0.24 : 0.16),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: tight ? 17 : 20, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: tight ? 12.5 : 13.5,
+                    fontWeight: FontWeight.w700,
+                    height: 1.15,
+                    color: fg,
+                  ),
+                ),
+                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: tight ? 10.5 : 11.5,
+                      fontWeight: FontWeight.w500,
+                      height: 1.15,
+                      color: fg.withValues(alpha: 0.62),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact horizontal layout (when tile height is tight or user picked Compact density):
+/// shows clear provider header + the single highest-priority metric with a crisp bar.
+class _CompactHorizontalAiTile extends StatelessWidget {
+  final AiLimitsAccount acct;
+  final AiLimitsTileConfig config;
+  final List<AiLimitsWindow> windows;
+  final IconData icon;
+  final Color accent;
+  final bool dark;
+  final Color fg;
+  final String title;
+  final String aliasText;
+  final String? planText;
+  final Color dotColor;
+  final ({String text, Color color, IconData? icon})? headerPill;
+  final double maxW;
+  final double maxH;
+
+  const _CompactHorizontalAiTile({
+    required this.acct,
+    required this.config,
+    required this.windows,
+    required this.icon,
+    required this.accent,
+    required this.dark,
+    required this.fg,
+    required this.title,
+    required this.aliasText,
+    required this.planText,
+    required this.dotColor,
+    required this.headerPill,
+    required this.maxW,
+    required this.maxH,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = _prioritizedWindow(windows);
+    final amber = dark ? const Color(0xFFFFB84D) : const Color(0xFFB45309);
+
+    Widget bottomMetric() {
+      if (!acct.enabled) {
+        return _InlineNote(text: tr('Conta desativada'), color: fg.withValues(alpha: 0.58));
+      }
+      if (acct.isAuthRequired) {
+        return _InlineNote(text: tr('Autenticação necessária'), color: DeckTileColors.red);
+      }
+      if (acct.isRateLimited && (primary == null || !primary.hasPercent)) {
+        return _InlineNote(text: tr('Limite de taxa (429)'), color: amber);
+      }
+      if (primary != null && primary.hasPercent) {
+        final used = primary.effectiveUsedPercent!;
+        final shown = config.showRemaining ? primary.effectiveRemainingPercent! : used;
+        final rounded = shown.round();
+        final stale = acct.isStale || primary.isEffectivelyStale();
+        final label = _windowLabelWithPool(primary, _windowShortLabel(primary));
+        final valText = config.showRemaining
+            ? tr('{p}% livre', {'p': '$rounded'})
+            : tr('{p}% usado', {'p': '$rounded'});
+        final barCol = _meterColor(
+          usedPercent: used,
+          stale: stale,
+          blocked: acct.isUsageBlocked,
+          accent: accent,
+          dark: dark,
+        );
+        final valCol = _valueColor(
+          usedPercent: used,
+          stale: stale,
+          blocked: acct.isUsageBlocked,
+          fg: fg,
+          dark: dark,
+        );
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: fg.withValues(alpha: 0.78),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                _RichPercentText(
+                  fullText: valText,
+                  pctToken: '$rounded%',
+                  pctSize: 15.0,
+                  suffixSize: 10.5,
+                  color: valCol,
+                  suffixColor: valCol.withValues(alpha: 0.72),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            CapsuleBar(
+              value: (shown / 100.0).clamp(0.0, 1.0),
+              color: barCol,
+              height: 6.5,
+              track: fg.withValues(alpha: dark ? 0.14 : 0.11),
+            ),
+          ],
+        );
+      }
+      if (primary != null && primary.hasNativeCount) {
+        return Row(
+          children: [
+            Expanded(
+              child: Text(
+                _windowShortLabel(primary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.5, color: fg.withValues(alpha: 0.7)),
+              ),
+            ),
+            Text(
+              _formatNativeMetric(primary),
+              style: TextStyle(
+                fontSize: 14.0,
+                fontWeight: FontWeight.w800,
+                color: dark ? const Color(0xFF60A5FA) : const Color(0xFF0369A1),
+              ),
+            ),
+          ],
+        );
+      }
+      return _InlineNote(
+        text: acct.quotaStatus == 'awaiting_data' ? tr('Aguardando uso') : tr('Indisponível'),
+        color: acct.quotaStatus == 'awaiting_data' ? fg.withValues(alpha: 0.65) : amber,
+      );
+    }
+
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: SizedBox(
+        width: maxW,
+        height: maxH,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: dark ? 0.24 : 0.15),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: Icon(icon, size: 13.5, color: accent),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      aliasText.isNotEmpty ? '$title · $aliasText' : title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: fg,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+                  ),
+                  if (headerPill != null) ...[
+                    const SizedBox(width: 6),
+                    _CompactBadge(text: headerPill!.text, color: headerPill!.color, dark: dark),
+                  ],
+                ],
+              ),
+              bottomMetric(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Square / 1×1 single-focus glanceable layout: prioritizes the most constrained window
+/// with a big readable percentage and one clean bar instead of cramming two tiny rows.
+class _SquareAiTile extends StatelessWidget {
+  final AiLimitsAccount acct;
+  final AiLimitsTileConfig config;
+  final List<AiLimitsWindow> windows;
+  final IconData icon;
+  final Color accent;
+  final bool dark;
+  final Color fg;
+  final String title;
+  final String aliasText;
+  final Color dotColor;
+  final ({String text, Color color, IconData? icon})? headerPill;
+  final double maxW;
+  final double maxH;
+
+  const _SquareAiTile({
+    required this.acct,
+    required this.config,
+    required this.windows,
+    required this.icon,
+    required this.accent,
+    required this.dark,
+    required this.fg,
+    required this.title,
+    required this.aliasText,
+    required this.dotColor,
+    required this.headerPill,
+    required this.maxW,
+    required this.maxH,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = _prioritizedWindow(windows);
+    final tiny = maxW < 92 || maxH < 92;
+    final micro = maxW < 70 || maxH < 70;
+    final amber = dark ? const Color(0xFFFFB84D) : const Color(0xFFB45309);
+
+    Widget centerHero() {
+      if (!acct.enabled) {
+        return _SquareStatus(label: tr('Desativado'), color: fg.withValues(alpha: 0.58), tiny: tiny);
+      }
+      if (acct.isAuthRequired) {
+        return _SquareStatus(label: tr('Auth'), color: DeckTileColors.red, tiny: tiny);
+      }
+      if (acct.isRateLimited && (primary == null || !primary.hasPercent)) {
+        return _SquareStatus(label: tr('429'), color: amber, tiny: tiny);
+      }
+      if (primary != null && primary.hasPercent) {
+        final used = primary.effectiveUsedPercent!;
+        final shown = config.showRemaining ? primary.effectiveRemainingPercent! : used;
+        final rounded = shown.round();
+        final stale = acct.isStale || primary.isEffectivelyStale();
+        final barCol = _meterColor(
+          usedPercent: used,
+          stale: stale,
+          blocked: acct.isUsageBlocked,
+          accent: accent,
+          dark: dark,
+        );
+        final valCol = _valueColor(
+          usedPercent: used,
+          stale: stale,
+          blocked: acct.isUsageBlocked,
+          fg: fg,
+          dark: dark,
+        );
+        final shortWin = _windowShortLabel(primary);
+        final sub = config.showRemaining
+            ? '$shortWin · ${tr('livre')}'
+            : '$shortWin · ${tr('usado')}';
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '$rounded%',
+                style: TextStyle(
+                  fontSize: micro ? 15.0 : (tiny ? 18.0 : 25.0),
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.6,
+                  height: 1.0,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: valCol,
+                ),
+              ),
+            ),
+            if (!micro) ...[
+              const SizedBox(height: 2),
+              Text(
+                sub,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: tiny ? 9.0 : 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: fg.withValues(alpha: 0.62),
+                ),
+              ),
+            ],
+            SizedBox(height: micro ? 3 : (tiny ? 4 : 6)),
+            CapsuleBar(
+              value: (shown / 100.0).clamp(0.0, 1.0),
+              color: barCol,
+              height: micro ? 4.0 : (tiny ? 4.5 : 6.0),
+              track: fg.withValues(alpha: dark ? 0.14 : 0.11),
+            ),
+          ],
+        );
+      }
+      if (primary != null && primary.hasNativeCount) {
+        return _SquareStatus(
+          label: _formatNativeMetric(primary),
+          color: dark ? const Color(0xFF60A5FA) : const Color(0xFF0369A1),
+          tiny: tiny,
+        );
+      }
+      return _SquareStatus(
+        label: acct.quotaStatus == 'awaiting_data' ? tr('Aguardando') : tr('Indisponível'),
+        color: acct.quotaStatus == 'awaiting_data' ? fg.withValues(alpha: 0.65) : amber,
+        tiny: tiny,
+      );
+    }
+
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.12,
+      child: SizedBox(
+        width: maxW,
+        height: maxH,
+        child: Padding(
+          padding: EdgeInsets.all(tiny ? 1 : 2),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: micro ? 16 : (tiny ? 18 : 24),
+                    height: micro ? 16 : (tiny ? 18 : 24),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: dark ? 0.24 : 0.15),
+                      borderRadius: BorderRadius.circular(tiny ? 5 : 7),
+                    ),
+                    child: Icon(icon, size: micro ? 9.5 : (tiny ? 10.5 : 13.5), color: accent),
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: micro ? 9.5 : (tiny ? 10.0 : 12.0),
+                        fontWeight: FontWeight.w700,
+                        color: fg,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+                  ),
+                ],
+              ),
+              Flexible(
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: micro
+                      ? FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.bottomLeft,
+                          child: SizedBox(
+                            width: math.max(24.0, maxW - 4),
+                            child: centerHero(),
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          physics: const NeverScrollableScrollPhysics(),
+                          child: centerHero(),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SquareStatus extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool tiny;
+
+  const _SquareStatus({
+    required this.label,
+    required this.color,
+    required this.tiny,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text(
+        label,
+        maxLines: 1,
+        style: TextStyle(
+          fontSize: tiny ? 11.5 : 14.0,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
     );
   }
 }
@@ -488,39 +1727,44 @@ class _HeaderPill extends StatelessWidget {
   final Color color;
   final IconData? icon;
   final bool dark;
+  final bool tight;
 
   const _HeaderPill({
     required this.text,
     required this.color,
     required this.icon,
     required this.dark,
+    this.tight = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 3),
+      padding: EdgeInsets.symmetric(
+        horizontal: tight ? 7.0 : 9.0,
+        vertical: tight ? 3.5 : 4.5,
+      ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: dark ? 0.14 : 0.10),
+        color: color.withValues(alpha: dark ? 0.16 : 0.10),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: color.withValues(alpha: dark ? 0.24 : 0.18),
-          width: 0.75,
+          color: color.withValues(alpha: dark ? 0.28 : 0.18),
+          width: 0.8,
         ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 9.5, color: color),
-            const SizedBox(width: 3),
+            Icon(icon, size: tight ? 10.5 : 12.0, color: color),
+            const SizedBox(width: 4),
           ],
           Text(
             text,
             maxLines: 1,
             style: TextStyle(
-              fontSize: 8.8,
-              fontWeight: FontWeight.w600,
+              fontSize: tight ? 10.0 : 11.2,
+              fontWeight: FontWeight.w700,
               height: 1.05,
               fontFeatures: const [FontFeature.tabularFigures()],
               color: color,
@@ -546,181 +1790,22 @@ class _CompactBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: dark ? 0.16 : 0.12),
+        color: color.withValues(alpha: dark ? 0.18 : 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         text,
         maxLines: 1,
         style: TextStyle(
-          fontSize: 8.0,
+          fontSize: 9.5,
           fontWeight: FontWeight.w700,
           height: 1.05,
           fontFeatures: const [FontFeature.tabularFigures()],
           color: color,
         ),
       ),
-    );
-  }
-}
-
-class _LiveWindowRow extends StatelessWidget {
-  final AiLimitsWindow window;
-  final bool showRemaining;
-  final bool showResetInline;
-  final bool accountStale;
-  final Color accent;
-  final bool dark;
-  final Color fg;
-  final double barHeight;
-
-  const _LiveWindowRow({
-    required this.window,
-    required this.showRemaining,
-    required this.showResetInline,
-    required this.accountStale,
-    required this.accent,
-    required this.dark,
-    required this.fg,
-    required this.barHeight,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final amber = dark ? const Color(0xFFFFB84D) : const Color(0xFFB45309);
-    final stale = accountStale || window.isEffectivelyStale();
-    final label = _windowLabelWithPool(window, _windowShortLabel(window));
-
-    final String valueText;
-    final Color valueColor;
-    double? barFill;
-    Color barColor = accent;
-
-    if (window.hasPercent) {
-      final used = window.effectiveUsedPercent!;
-      final shown = showRemaining ? window.effectiveRemainingPercent! : used;
-      final rounded = shown.round();
-      valueText = showRemaining
-          ? tr('{p}% livre', {'p': '$rounded'})
-          : tr('{p}% usado', {'p': '$rounded'});
-      barFill = (shown / 100.0).clamp(0.0, 1.0);
-      if (stale) {
-        valueColor = amber;
-        barColor = DeckTileColors.orange.withValues(alpha: 0.65);
-      } else if (used > 85) {
-        valueColor = DeckTileColors.red;
-        barColor = DeckTileColors.red;
-      } else if (used > 65) {
-        valueColor = fg;
-        barColor = accent;
-      } else {
-        valueColor = fg;
-        barColor = accent;
-      }
-    } else if (window.hasNativeCount) {
-      valueText = _formatNativeMetric(window);
-      valueColor = dark ? const Color(0xFF60A5FA) : const Color(0xFF0369A1);
-      barFill = null;
-    } else if (window.isNotApplicable) {
-      valueText = window.kind == 'five_hour'
-          ? tr('Sem limite 5h')
-          : tr('Não aplicável');
-      valueColor = fg.withValues(alpha: 0.46);
-    } else if (window.isRateLimited) {
-      valueText = tr('429');
-      valueColor = amber;
-    } else if (window.isAuthRequired) {
-      valueText = tr('Auth');
-      valueColor = DeckTileColors.red;
-    } else if (window.isNotConnected) {
-      valueText = tr('Não conectado');
-      valueColor = fg.withValues(alpha: 0.50);
-    } else {
-      valueText = tr('Indisponível');
-      valueColor = dark ? const Color(0xFFD6A86E) : const Color(0xFF9A6700);
-    }
-
-    // A reset time that already passed isn't a countdown: the row is marked stale instead.
-    final resetInline = showResetInline && window.hasPercent && !window.isPastReset()
-        ? formatAiResetTime(window.resetsAt, compact: true)
-        : null;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Flexible(
-              flex: 2,
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 9.8,
-                  fontWeight: FontWeight.w600,
-                  height: 1.1,
-                  color: fg.withValues(alpha: 0.72),
-                ),
-              ),
-            ),
-            if (resetInline != null) ...[
-              const SizedBox(width: 5),
-              Text(
-                resetInline,
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: 8.5,
-                  fontWeight: FontWeight.w500,
-                  height: 1.1,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  color: fg.withValues(alpha: 0.46),
-                ),
-              ),
-            ],
-            const SizedBox(width: 6),
-            Expanded(
-              flex: 3,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    valueText,
-                    maxLines: 1,
-                    style: TextStyle(
-                      fontSize: barFill != null ? 10.5 : 9.2,
-                      fontWeight: barFill != null ? FontWeight.w700 : FontWeight.w600,
-                      height: 1.1,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      color: valueColor,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 3.5),
-        if (barFill != null)
-          CapsuleBar(
-            value: barFill,
-            color: barColor,
-            height: barHeight,
-          )
-        else
-          Container(
-            height: 1.5,
-            decoration: BoxDecoration(
-              color: fg.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-      ],
     );
   }
 }
@@ -734,6 +1819,7 @@ class _StatusTileLayout extends StatelessWidget {
   final String badge;
   final Color badgeColor;
   final String message;
+  final String? hint;
 
   const _StatusTileLayout({
     required this.icon,
@@ -744,71 +1830,100 @@ class _StatusTileLayout extends StatelessWidget {
     required this.badge,
     required this.badgeColor,
     required this.message,
+    this.hint,
   });
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, c) {
-        final w = c.maxWidth.isFinite ? c.maxWidth : 140.0;
+        final w = c.maxWidth.isFinite ? c.maxWidth : 240.0;
         final h = c.maxHeight.isFinite ? c.maxHeight : 120.0;
-        return SizedBox(
-          width: w,
-          height: h,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: MediaQuery.withClampedTextScaling(
-              maxScaleFactor: 1.22,
-              child: SizedBox(
-                width: math.max(w, 136.0),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        final small = w < 150 || h < 90;
+        final micro = w < 88 || h < 64;
+        return MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.2,
+          child: SizedBox(
+            width: w,
+            height: h,
+            child: Padding(
+              padding: EdgeInsets.all(micro ? 1 : (small ? 2 : 4)),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              color: accent.withValues(alpha: dark ? 0.22 : 0.14),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Icon(icon, size: 12.5, color: accent),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                                color: fg,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          _CompactBadge(text: badge, color: badgeColor, dark: dark),
-                        ],
+                      Container(
+                        width: micro ? 16 : (small ? 22 : 30),
+                        height: micro ? 16 : (small ? 22 : 30),
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: dark ? 0.24 : 0.14),
+                          borderRadius: BorderRadius.circular(micro ? 5 : (small ? 6 : 8)),
+                        ),
+                        child: Icon(icon, size: micro ? 9.5 : (small ? 12 : 16), color: accent),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        message,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 10.0,
-                          fontWeight: FontWeight.w500,
-                          color: fg.withValues(alpha: 0.68),
+                      SizedBox(width: micro ? 4 : 8),
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: micro ? 9.5 : (small ? 11.5 : 14.5),
+                            fontWeight: FontWeight.w700,
+                            color: fg,
+                          ),
                         ),
                       ),
+                      if (!micro) ...[
+                        const SizedBox(width: 6),
+                        Flexible(
+                          flex: 0,
+                          child: _CompactBadge(text: badge, color: badgeColor, dark: dark),
+                        ),
+                      ],
                     ],
                   ),
-                ),
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: SingleChildScrollView(
+                        physics: const NeverScrollableScrollPhysics(),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              micro ? badge : message,
+                              maxLines: micro ? 1 : 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: micro ? 9.0 : (small ? 10.5 : 13.0),
+                                fontWeight: FontWeight.w600,
+                                height: 1.2,
+                                color: micro ? badgeColor : fg.withValues(alpha: 0.85),
+                              ),
+                            ),
+                            if (!small && hint != null && hint!.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                hint!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.0,
+                                  fontWeight: FontWeight.w500,
+                                  color: fg.withValues(alpha: 0.56),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -836,22 +1951,22 @@ class _LoadingTileLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(6),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 13, color: accent),
-              const SizedBox(width: 5),
+              Icon(icon, size: 16, color: accent),
+              const SizedBox(width: 6),
               Flexible(
                 child: Text(
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w700,
                     color: fg,
                   ),
@@ -859,8 +1974,8 @@ class _LoadingTileLayout extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          const CupertinoActivityIndicator(radius: 8),
+          const SizedBox(height: 10),
+          const CupertinoActivityIndicator(radius: 9),
         ],
       ),
     );
@@ -880,7 +1995,7 @@ class _InlineNote extends StatelessWidget {
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
-        fontSize: 10.0,
+        fontSize: 12.0,
         fontWeight: FontWeight.w600,
         height: 1.2,
         color: color,
@@ -1051,13 +2166,13 @@ class _AiLimitsDetailSheetState extends State<_AiLimitsDetailSheet> {
                     Row(
                       children: [
                         Container(
-                          width: 36,
-                          height: 36,
+                          width: 40,
+                          height: 40,
                           decoration: BoxDecoration(
                             color: accent.withValues(alpha: dark ? 0.22 : 0.14),
                             borderRadius: BorderRadius.circular(AppleRadii.sm),
                           ),
-                          child: Icon(style.icon, size: 19, color: accent),
+                          child: Icon(style.icon, size: 20, color: accent),
                         ),
                         const SizedBox(width: AppleSpacing.sm),
                         Expanded(
@@ -1163,7 +2278,9 @@ class _AiLimitsDetailSheetState extends State<_AiLimitsDetailSheet> {
                           color: c.secondaryLabel,
                           text: acct.quotaStatus == 'manual_only'
                               ? tr('Este serviço não oferece API oficial de limite restante. Abra o painel oficial abaixo.')
-                              : tr('Ainda não há janelas de uso disponíveis para esta conta.'),
+                              : acct.quotaStatus == 'awaiting_data'
+                                  ? tr('Os limites aparecem após o uso normal da CLI')
+                                  : tr('Ainda não há janelas de uso disponíveis para esta conta.'),
                         )
                       else
                         for (final w in acct.windows) ...[
@@ -1361,9 +2478,12 @@ class _DetailWindowCard extends StatelessWidget {
       if (stale) {
         rightColor = c.orange;
         barColor = c.orange;
-      } else if (used > 85) {
+      } else if (used >= 90) {
         rightColor = c.red;
         barColor = c.red;
+      } else if (used >= 70) {
+        rightColor = c.orange;
+        barColor = c.orange;
       } else {
         rightColor = c.label;
       }
@@ -1428,7 +2548,7 @@ class _DetailWindowCard extends StatelessWidget {
             CapsuleBar(
               value: barFill,
               color: barColor,
-              height: 6,
+              height: 7.5,
               track: c.fill,
             ),
           ],
