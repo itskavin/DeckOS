@@ -1754,5 +1754,7 @@
   "Cannot verify this PC. Update the PC companion, open a fresh pairing code on that PC, and try again. A changed certificate requires a new scan.": "No se puede verificar este PC. Actualice el programa del PC, abra un código nuevo y vuelva a intentarlo. Un certificado cambiado requiere un nuevo escaneo.",
   "Update the PC companion and use its secure pairing code (version 2). Existing profiles are kept.": "Actualice el programa del PC y utilice su código seguro (versión 2). Se conservarán los perfiles existentes.",
   "On your PC, open Pair device and scan or copy the complete secure pairing code. Finding an address does not verify its identity. Old PCs need the updated companion.": "En su PC, abra Vincular dispositivo y escanee o copie el código seguro completo. Encontrar una dirección no verifica su identidad. Actualice el programa de los PC antiguos.",
-  "Secure storage is unavailable. Unlock your phone and restart DeckOS. Your saved data has been kept.": "El almacenamiento seguro no está disponible. Desbloquee el teléfono y reinicie DeckOS. Se han conservado sus datos."
+  "Secure storage is unavailable. Unlock your phone and restart DeckOS. Your saved data has been kept.": "El almacenamiento seguro no está disponible. Desbloquee el teléfono y reinicie DeckOS. Se han conservado sus datos.",
+  "Assinatura": "Suscripción",
+  "Gerencie sua assinatura do DeckOS no Google Play": "Administra tu suscripción de DeckOS en Google Play"
 }

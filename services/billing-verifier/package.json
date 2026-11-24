@@ -1,0 +1,14 @@
+{
+  "name": "deckos-billing-verifier",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Trusted server-side Google Play subscription verifier, RTDN handler, and Ed25519 entitlement signer for DeckOS (Bytetrix).",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

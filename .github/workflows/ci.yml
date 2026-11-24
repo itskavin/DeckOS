@@ -22,6 +22,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  billing-verifier:
+    name: Billing verifier (fixture tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm test
+        working-directory: services/billing-verifier
+
   backend:
     name: Backend (dotnet test)
     runs-on: windows-latest

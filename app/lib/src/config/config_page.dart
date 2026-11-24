@@ -8,6 +8,7 @@ import 'package:deckos/src/stream_deck/backup/backup_buttons.dart';
 import 'package:deckos/src/ai_limits/ai_limits_models.dart';
 import 'package:deckos/src/ai_limits/ai_limits_settings_page.dart';
 import 'package:deckos/src/ai_limits/ai_limits_store.dart';
+import 'package:deckos/src/billing/subscription_page.dart';
 import 'package:deckos/src/config/integrations_page.dart';
 import 'package:deckos/src/config/triggers_page.dart';
 import 'package:deckos/src/config/pc_switcher.dart';
@@ -635,6 +636,16 @@ class ConfigPageState extends State<ConfigPage> {
           color: c.blue,
           keywords: 'exportar importar stream deck arquivo',
           onTap: () => _push(const _BackupPage()),
+        ),
+      ]),
+      _Section(tr('Assinatura'), null, [
+        _row(
+          title: tr('Assinatura'),
+          subtitle: tr('Gerencie sua assinatura do DeckOS no Google Play'),
+          icon: Icons.workspace_premium_rounded,
+          color: c.purple,
+          keywords: 'subscription pro plan billing google play assinatura suscripcion',
+          onTap: () => _push(const SubscriptionPage()),
         ),
       ]),
       _Section(tr('Sobre'), null, [

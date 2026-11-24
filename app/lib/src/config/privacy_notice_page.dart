@@ -66,8 +66,21 @@ class PrivacyNoticePage extends StatelessWidget {
           'DeckOS does not promise access to every provider quota. Exported '
           'profiles, shared links and files can contain your custom content. '
           'Check them before sharing. External websites and share targets '
-          'follow their own privacy policies. This app includes no ads or '
-          'in-app purchases.',
+          'follow their own privacy policies. This app includes no ads.',
+    ),
+    (
+      'Google Play subscriptions',
+      'The app includes Google Play Billing, but subscriptions are not available '
+          'in this build. DeckOS does not start a billing connection, create a '
+          'billing identifier or send purchase tokens to a verification service '
+          'while billing is unconfigured. Managing subscriptions opens Google Play '
+          'in an external app or browser under Google\'s policies. If billing is '
+          'enabled in a future version, Play will handle checkout; DeckOS will use '
+          'an opaque installation identifier, purchase token, product and subscription '
+          'status to verify access with a trusted HTTPS service. An opaque identifier '
+          'is linkable data, not a guarantee of anonymity. That release will need '
+          'updated retention, recovery and privacy details. DeckOS does not receive '
+          'your payment card details from Play.',
     ),
     (
       'Removing data',
