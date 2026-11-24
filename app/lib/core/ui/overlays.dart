@@ -80,6 +80,7 @@ Future<T?> showAppleDialog<T>({
   Widget? content,
   required List<AppleDialogAction<T>> actions,
   bool barrierDismissible = true,
+  bool scrollable = false,
 }) {
   return showDialog<T>(
     context: context,
@@ -89,6 +90,7 @@ Future<T?> showAppleDialog<T>({
       message: message,
       content: content,
       actions: actions,
+      scrollable: scrollable,
     ),
   );
 }
@@ -99,12 +101,14 @@ class _ModernAlertDialog<T> extends StatelessWidget {
     required this.actions,
     this.message,
     this.content,
+    this.scrollable = false,
   });
 
   final String title;
   final String? message;
   final Widget? content;
   final List<AppleDialogAction<T>> actions;
+  final bool scrollable;
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +138,35 @@ class _ModernAlertDialog<T> extends StatelessWidget {
       );
     }
 
+    final body = Padding(
+      padding: const EdgeInsets.all(AppleSpacing.lg),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: type.title3.copyWith(color: c.label)),
+          if (message != null) ...[
+            const SizedBox(height: AppleSpacing.xs),
+            Text(
+              message!,
+              style: type.subheadline.copyWith(color: c.secondaryLabel),
+            ),
+          ],
+          if (content != null) ...[
+            const SizedBox(height: AppleSpacing.sm),
+            content!,
+          ],
+          const SizedBox(height: AppleSpacing.lg),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: AppleSpacing.xs,
+            runSpacing: AppleSpacing.xs,
+            children: [for (final a in actions) buildButton(a)],
+          ),
+        ],
+      ),
+    );
+
     return Dialog(
       insetPadding: const EdgeInsets.all(AppleSpacing.lg),
       backgroundColor: c.isDark ? c.tertiaryGroupedBackground : Colors.white,
@@ -145,37 +178,9 @@ class _ModernAlertDialog<T> extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
-        child: Padding(
-          padding: const EdgeInsets.all(AppleSpacing.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                title,
-                style: type.title3.copyWith(color: c.label),
-              ),
-              if (message != null) ...[
-                const SizedBox(height: AppleSpacing.xs),
-                Text(
-                  message!,
-                  style: type.subheadline.copyWith(color: c.secondaryLabel),
-                ),
-              ],
-              if (content != null) ...[
-                const SizedBox(height: AppleSpacing.sm),
-                content!,
-              ],
-              const SizedBox(height: AppleSpacing.lg),
-              Wrap(
-                alignment: WrapAlignment.end,
-                spacing: AppleSpacing.xs,
-                runSpacing: AppleSpacing.xs,
-                children: [for (final a in actions) buildButton(a)],
-              ),
-            ],
-          ),
-        ),
+        // A keyboard can leave only a short viewport in landscape. Keep the
+        // complete form and its actions reachable without overflowing it.
+        child: scrollable ? SingleChildScrollView(child: body) : body,
       ),
     );
   }

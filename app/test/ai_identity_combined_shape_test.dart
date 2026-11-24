@@ -348,6 +348,56 @@ void main() {
     },
   );
 
+  for (final scale in [1.0, 2.0]) {
+    testWidgets(
+      'alias can be saved with the landscape keyboard open at ${scale}x text',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 360);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetViewInsets);
+        final server = await tester.runAsync(register);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(const ThemeSettings(), Brightness.dark),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: const AiLimitsSettingsPage(),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Privacy and names'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Privacy and names'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Edit alias').first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit alias').first);
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Travel');
+        tester.view.viewInsets = const FakeViewPadding(bottom: 190);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.text('Save'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(find.text('Save')).bottom,
+          lessThanOrEqualTo(170),
+        );
+        await tester.tap(find.text('Save'));
+        await tester.pumpAndSettle();
+        expect(server!.alias, 'Travel');
+        expect(find.text('Account alias'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   test(
     'delayed snapshots cannot reveal names after a newer privacy change',
     () async {

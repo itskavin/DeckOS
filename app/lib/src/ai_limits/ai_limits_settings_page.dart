@@ -156,6 +156,7 @@ class _AiLimitsSettingsPageState extends State<AiLimitsSettingsPage> {
     final res = await showAppleDialog<String>(
       context: context,
       title: tr('Alias da conta'),
+      scrollable: true,
       content: StatefulBuilder(builder: (context, refresh) => Watch((context) => Padding(
         padding: const EdgeInsets.only(top: AppleSpacing.sm),
         child: TextFormField(
