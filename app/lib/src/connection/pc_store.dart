@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'credential_store.dart';
 import 'transport_policy.dart';
 
@@ -82,6 +83,8 @@ class PcStore {
 
   static Future<List<SavedPc>> load() => _locked(_load);
   static Future<List<SavedPc>> _load() async {
+    // Browser credentials belong to that browser origin, not the native PC vault.
+    if (kIsWeb) return [];
     final prefs = await SharedPreferences.getInstance();
     var list = _decode(prefs.getString(_listKey));
     if (list.isEmpty) {
