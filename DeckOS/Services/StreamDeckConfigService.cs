@@ -140,6 +140,16 @@ namespace DeckOS.Services
                 _logger.LogWarning("SaveProfile: Id de perfil invalido rejeitado: {Id}", profile?.Id);
                 return;
             }
+            if (profile.CustomRows is > 0 && profile.CustomColumns is > 0)
+            {
+                profile.CustomRows = Math.Clamp(profile.CustomRows.Value, 1, 20);
+                profile.CustomColumns = Math.Clamp(profile.CustomColumns.Value, 1, 20);
+            }
+            else
+            {
+                profile.CustomRows = null;
+                profile.CustomColumns = null;
+            }
             var saved = false;
             lock (_lock)
             {

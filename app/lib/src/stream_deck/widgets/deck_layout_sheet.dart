@@ -6,29 +6,46 @@ import 'package:deckos/src/stream_deck/layout/slot_ops.dart';
 import 'package:deckos/src/stream_deck/widgets/dynamic_deck_button.dart';
 import 'package:flutter/material.dart';
 
+/// Escopo da alteração de grade no painel de layout.
+enum DeckGridScope { allPages, thisPage }
+
 /// Resultado confirmado pelo painel de layout da grade.
 /// Cancelar ou fechar sem salvar devolve null (nada é salvo parcialmente).
 @immutable
 class DeckLayoutResult {
   const DeckLayoutResult({
+    this.scope = DeckGridScope.allPages,
     required this.autoGrid,
     required this.rows,
     required this.columns,
     required this.spacing,
     required this.iconSize,
     required this.showLabels,
+    this.resetPageGrid = false,
+    this.updatedButtons,
   });
 
-  /// Quando verdadeiro (no celular), a grade acompanha o tamanho da tela.
+  /// Se a grade alterada vale para todas as páginas (global) ou apenas para esta página.
+  final DeckGridScope scope;
+
+  /// Quando verdadeiro (no celular, no escopo global), a grade acompanha o tamanho da tela.
   final bool autoGrid;
   final int rows;
   final int columns;
   final DeckSpacing spacing;
   final DeckIconSize iconSize;
   final bool showLabels;
+
+  /// Quando verdadeiro em [DeckGridScope.thisPage], limpa a grade própria desta página
+  /// para voltar a herdar a grade global.
+  final bool resetPageGrid;
+
+  /// Lista reorganizada de botões quando o usuário confirmou ajustar posições para caber
+  /// numa grade menor desta página sem perder nenhum botão.
+  final List<DeckButton>? updatedButtons;
 }
 
-/// Folha de personalização do layout do deck (grade compartilhada + aparência local).
+/// Folha de personalização do layout do deck (grade desta página ou global + aparência local).
 /// Usada tanto no celular quanto no configurador do PC, com prévia ao vivo dos botões
 /// reais da página atual e confirmação explícita (Salvar / Cancelar).
 class DeckLayoutSheet extends StatefulWidget {
@@ -43,6 +60,9 @@ class DeckLayoutSheet extends StatefulWidget {
     required this.autoColumns,
     required this.allowAutoGrid,
     required this.initialSettings,
+    this.initialScope = DeckGridScope.allPages,
+    this.initialPageGrid,
+    this.allowPageScope = true,
   });
 
   final DeckProfile profile;
@@ -59,12 +79,30 @@ class DeckLayoutSheet extends StatefulWidget {
   final bool allowAutoGrid;
   final ThemeSettings initialSettings;
 
-  static const _presets = <({int cols, int rows})>[
+  /// Escopo inicial selecionado ao abrir o painel.
+  final DeckGridScope initialScope;
+
+  /// Grade própria atualmente salva nesta página (nula = herdando a grade global).
+  final ({int rows, int columns})? initialPageGrid;
+
+  /// Exibe o seletor "Esta página" / "Todas as páginas".
+  final bool allowPageScope;
+
+  static const _globalPresets = <({int cols, int rows})>[
     (cols: 3, rows: 2),
     (cols: 4, rows: 2),
     (cols: 4, rows: 3),
     (cols: 5, rows: 3),
     (cols: 6, rows: 3),
+  ];
+
+  static const _pagePresets = <({int cols, int rows})>[
+    (cols: 2, rows: 2),
+    (cols: 2, rows: 4),
+    (cols: 3, rows: 2),
+    (cols: 4, rows: 2),
+    (cols: 4, rows: 3),
+    (cols: 5, rows: 3),
   ];
 
   static Future<DeckLayoutResult?> show(
@@ -78,6 +116,9 @@ class DeckLayoutSheet extends StatefulWidget {
     required int autoColumns,
     required bool allowAutoGrid,
     required ThemeSettings initialSettings,
+    DeckGridScope initialScope = DeckGridScope.allPages,
+    ({int rows, int columns})? initialPageGrid,
+    bool allowPageScope = true,
   }) {
     return showAppleSheet<DeckLayoutResult>(
       context: context,
@@ -91,6 +132,9 @@ class DeckLayoutSheet extends StatefulWidget {
         autoColumns: autoColumns,
         allowAutoGrid: allowAutoGrid,
         initialSettings: initialSettings,
+        initialScope: initialScope,
+        initialPageGrid: initialPageGrid,
+        allowPageScope: allowPageScope,
       ),
     );
   }
@@ -103,55 +147,108 @@ class _DeckLayoutSheetState extends State<DeckLayoutSheet> {
   late final ({int rows, int columns}) _pageMin =
       SlotOps.minGrid(widget.profile.buttons);
 
+  late DeckGridScope _scope =
+      widget.allowPageScope ? widget.initialScope : DeckGridScope.allPages;
+
+  // Global grid state
   late bool _autoGrid = widget.allowAutoGrid && widget.initialAutoGrid;
-  late int _rows = math.max(widget.initialRows, _pageMin.rows).clamp(1, 10);
-  late int _cols =
+  late int _globalRows =
+      math.max(widget.initialRows, _pageMin.rows).clamp(1, 10);
+  late int _globalCols =
       math.max(widget.initialColumns, _pageMin.columns).clamp(1, 10);
+
+  // Per-page grid override state
+  late bool _pageInheritsGlobal = widget.initialPageGrid == null;
+  late int _pageRows =
+      (widget.initialPageGrid?.rows ?? widget.initialRows).clamp(1, 10);
+  late int _pageCols =
+      (widget.initialPageGrid?.columns ?? widget.initialColumns).clamp(1, 10);
+
+  // Device-local appearance state
   late DeckSpacing _spacing = widget.initialSettings.spacing;
   late DeckIconSize _iconSize = widget.initialSettings.iconSize;
   late bool _showLabels = widget.initialSettings.effectiveShowLabels;
 
-  int get _effectiveRows =>
-      math.max(_autoGrid ? widget.autoRows : _rows, _pageMin.rows).clamp(1, 10);
-
-  int get _effectiveCols =>
-      math.max(_autoGrid ? widget.autoColumns : _cols, _pageMin.columns)
+  int get _effectiveGlobalRows =>
+      math.max(_autoGrid ? widget.autoRows : _globalRows, _pageMin.rows)
           .clamp(1, 10);
 
-  /// Alguma outra página tem botões além da grade escolhida? (Ela expande sozinha sem perder nada.)
+  int get _effectiveGlobalCols =>
+      math.max(_autoGrid ? widget.autoColumns : _globalCols, _pageMin.columns)
+          .clamp(1, 10);
+
+  int get _previewRows => _scope == DeckGridScope.thisPage
+      ? (_pageInheritsGlobal ? _effectiveGlobalRows : _pageRows)
+      : _effectiveGlobalRows;
+
+  int get _previewCols => _scope == DeckGridScope.thisPage
+      ? (_pageInheritsGlobal ? _effectiveGlobalCols : _pageCols)
+      : _effectiveGlobalCols;
+
+  GridFitPlan get _pageFitPlan => SlotOps.planGridFit(
+        widget.profile.buttons,
+        rows: _pageRows,
+        columns: _pageCols,
+      );
+
+  /// Alguma outra página tem botões além da grade global escolhida? (Ela expande sozinha sem perder nada.)
   bool get _otherPagesLarger {
     for (final p in widget.allProfiles) {
       if (p.id == widget.profile.id) continue;
+      if (p.hasCustomGrid) continue;
       final min = SlotOps.minGrid(p.buttons);
-      if (min.columns > _effectiveCols || min.rows > _effectiveRows) {
+      if (min.columns > _effectiveGlobalCols || min.rows > _effectiveGlobalRows) {
         return true;
       }
     }
     return false;
   }
 
-  void _selectPreset(int cols, int rows) {
+  void _selectGlobalPreset(int cols, int rows) {
     if (cols < _pageMin.columns || rows < _pageMin.rows) return;
     setState(() {
       _autoGrid = false;
-      _cols = cols;
-      _rows = rows;
+      _globalCols = cols;
+      _globalRows = rows;
     });
   }
 
   void _selectAuto() {
     setState(() {
       _autoGrid = true;
-      _cols = math.max(widget.autoColumns, _pageMin.columns).clamp(1, 10);
-      _rows = math.max(widget.autoRows, _pageMin.rows).clamp(1, 10);
+      _globalCols = math.max(widget.autoColumns, _pageMin.columns).clamp(1, 10);
+      _globalRows = math.max(widget.autoRows, _pageMin.rows).clamp(1, 10);
+    });
+  }
+
+  void _selectPagePreset(int cols, int rows) {
+    setState(() {
+      _pageInheritsGlobal = false;
+      _pageCols = cols.clamp(1, 10);
+      _pageRows = rows.clamp(1, 10);
+    });
+  }
+
+  void _resetPageToGlobal() {
+    setState(() {
+      _pageInheritsGlobal = true;
+      _pageCols = widget.initialColumns.clamp(1, 10);
+      _pageRows = widget.initialRows.clamp(1, 10);
     });
   }
 
   void _resetDefaults() {
     setState(() {
-      _autoGrid = widget.allowAutoGrid;
-      _cols = math.max(widget.autoColumns, _pageMin.columns).clamp(1, 10);
-      _rows = math.max(widget.autoRows, _pageMin.rows).clamp(1, 10);
+      if (_scope == DeckGridScope.thisPage) {
+        _pageInheritsGlobal = true;
+        _pageCols = widget.initialColumns.clamp(1, 10);
+        _pageRows = widget.initialRows.clamp(1, 10);
+      } else {
+        _autoGrid = widget.allowAutoGrid;
+        _globalCols =
+            math.max(widget.autoColumns, _pageMin.columns).clamp(1, 10);
+        _globalRows = math.max(widget.autoRows, _pageMin.rows).clamp(1, 10);
+      }
       _spacing = DeckSpacing.balanced;
       _iconSize = DeckIconSize.medium;
       _showLabels =
@@ -159,28 +256,159 @@ class _DeckLayoutSheetState extends State<DeckLayoutSheet> {
     });
   }
 
-  void _save() {
-    Navigator.of(context).pop(DeckLayoutResult(
-      autoGrid: _autoGrid,
-      rows: _effectiveRows,
-      columns: _effectiveCols,
-      spacing: _spacing,
-      iconSize: _iconSize,
-      showLabels: _showLabels,
-    ));
+  Future<void> _save() async {
+    if (_scope == DeckGridScope.allPages) {
+      Navigator.of(context).pop(DeckLayoutResult(
+        scope: DeckGridScope.allPages,
+        autoGrid: _autoGrid,
+        rows: _effectiveGlobalRows,
+        columns: _effectiveGlobalCols,
+        spacing: _spacing,
+        iconSize: _iconSize,
+        showLabels: _showLabels,
+      ));
+      return;
+    }
+
+    // Per-page scope: either reset/inherit global or save an explicit override.
+    if (_pageInheritsGlobal) {
+      Navigator.of(context).pop(DeckLayoutResult(
+        scope: DeckGridScope.thisPage,
+        autoGrid: false,
+        rows: _effectiveGlobalRows,
+        columns: _effectiveGlobalCols,
+        spacing: _spacing,
+        iconSize: _iconSize,
+        showLabels: _showLabels,
+        resetPageGrid: true,
+      ));
+      return;
+    }
+
+    final plan = _pageFitPlan;
+    if (plan.fitsAsIs) {
+      Navigator.of(context).pop(DeckLayoutResult(
+        scope: DeckGridScope.thisPage,
+        autoGrid: false,
+        rows: _pageRows,
+        columns: _pageCols,
+        spacing: _spacing,
+        iconSize: _iconSize,
+        showLabels: _showLabels,
+      ));
+      return;
+    }
+
+    // Non-destructive actionable choice whenever existing buttons sit outside the requested grid.
+    final minSafeCols = math.max(_pageCols, _pageMin.columns).clamp(1, 10);
+    final minSafeRows = math.max(_pageRows, _pageMin.rows).clamp(1, 10);
+    final choice = await showAppleDialog<String>(
+      context: context,
+      title: plan.needsExpand
+          ? tr('Os botões não cabem em {cols}×{rows}', {
+              'cols': _pageCols,
+              'rows': _pageRows,
+            })
+          : tr('Reorganizar botões para {cols}×{rows}?', {
+              'cols': _pageCols,
+              'rows': _pageRows,
+            }),
+      message: plan.needsExpand
+          ? tr(
+              'Esta página tem {n} botões. Nenhum botão, rótulo ou conta será apagado. Escolha como ajustar:',
+              {'n': widget.profile.buttons.length},
+            )
+          : tr(
+              'Alguns botões estão fora de {cols}×{rows}. Reorganizar mantém todos os botões, ações e contas vinculadas.',
+              {'cols': _pageCols, 'rows': _pageRows},
+            ),
+      actions: [
+        AppleDialogAction(
+          label: plan.needsExpand
+              ? tr('Reorganizar e expandir ({cols}×{rows})', {
+                  'cols': plan.requiredColumns,
+                  'rows': plan.requiredRows,
+                })
+              : tr('Reorganizar e salvar'),
+          value: 'reflow',
+          isDefault: true,
+        ),
+        AppleDialogAction(
+          label: tr('Manter tamanho mínimo ({cols}×{rows})', {
+            'cols': minSafeCols,
+            'rows': minSafeRows,
+          }),
+          value: 'keep_min',
+        ),
+        AppleDialogAction(label: tr('Cancelar'), value: 'cancel'),
+      ],
+    );
+    if (!mounted || choice == null || choice == 'cancel') return;
+
+    if (choice == 'reflow') {
+      Navigator.of(context).pop(DeckLayoutResult(
+        scope: DeckGridScope.thisPage,
+        autoGrid: false,
+        rows: plan.requiredRows.clamp(1, 20),
+        columns: plan.requiredColumns.clamp(1, 20),
+        spacing: _spacing,
+        iconSize: _iconSize,
+        showLabels: _showLabels,
+        updatedButtons: plan.buttons,
+      ));
+      return;
+    }
+
+    if (choice == 'keep_min') {
+      Navigator.of(context).pop(DeckLayoutResult(
+        scope: DeckGridScope.thisPage,
+        autoGrid: false,
+        rows: minSafeRows,
+        columns: minSafeCols,
+        spacing: _spacing,
+        iconSize: _iconSize,
+        showLabels: _showLabels,
+      ));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final c = AppleColors.of(context);
     final type = AppleTextStyles.of(context);
-    final constrainedByPage =
+    final isThisPage = _scope == DeckGridScope.thisPage;
+    final constrainedByPage = !isThisPage &&
         widget.profile.buttons.isNotEmpty &&
         (_pageMin.columns > 1 || _pageMin.rows > 1);
+    final plan = isThisPage && !_pageInheritsGlobal ? _pageFitPlan : null;
+
+    final previewProfile = (plan != null && plan.needsRearrange)
+        ? widget.profile.copyWith(buttons: plan.buttons)
+        : widget.profile;
+    final previewRows = (plan != null && plan.needsExpand)
+        ? plan.requiredRows
+        : _previewRows;
+    final previewCols = (plan != null && plan.needsExpand)
+        ? plan.requiredColumns
+        : _previewCols;
+
+    final scopeCaption = isThisPage
+        ? (_pageInheritsGlobal
+            ? tr('Global ({cols}×{rows})', {
+                'cols': _effectiveGlobalCols,
+                'rows': _effectiveGlobalRows,
+              })
+            : tr('Só esta página ({cols}×{rows})', {
+                'cols': previewCols,
+                'rows': previewRows,
+              }))
+        : (_autoGrid
+            ? '${tr('Automático')} ($previewCols×$previewRows)'
+            : '$previewCols×$previewRows');
 
     return ConstrainedBox(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.86,
+        maxHeight: MediaQuery.sizeOf(context).height * 0.88,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -201,7 +429,9 @@ class _DeckLayoutSheetState extends State<DeckLayoutSheet> {
                 ),
                 Expanded(
                   child: Text(
-                    tr('Layout da grade'),
+                    isThisPage
+                        ? tr('Grade desta página')
+                        : tr('Layout da grade'),
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -232,100 +462,299 @@ class _DeckLayoutSheetState extends State<DeckLayoutSheet> {
                       AppleSpacing.screen,
                       0,
                       AppleSpacing.screen,
-                      AppleSpacing.lg,
+                      AppleSpacing.md,
                     ),
                     child: _LiveLayoutPreview(
-                      profile: widget.profile,
-                      rows: _effectiveRows,
-                      columns: _effectiveCols,
+                      profile: previewProfile,
+                      rows: previewRows,
+                      columns: previewCols,
                       spacing: _spacing,
                       iconSize: _iconSize,
                       showLabels: _showLabels,
-                      autoGrid: _autoGrid,
+                      caption:
+                          '${widget.profile.name} · $scopeCaption · ${_spacing.label}',
                     ),
                   ),
 
-                  // ---- Grade compartilhada (PC + todos os aparelhos) ----
-                  InsetGroupedSection(
-                    header: tr('Grade do deck'),
-                    footer: [
-                      tr('Sincronizado com o PC e outros aparelhos.'),
-                      if (constrainedByPage)
-                        tr(
-                          'Mínimo {cols}×{rows} para manter todos os botões desta página.',
-                          {'cols': _pageMin.columns, 'rows': _pageMin.rows},
-                        ),
-                      if (_otherPagesLarger)
-                        tr(
-                          'Outras páginas com mais botões continuam mostrando todos sem perder nenhum.',
-                        ),
-                    ].join(' '),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(AppleSpacing.md),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Wrap(
-                              spacing: AppleSpacing.xs,
-                              runSpacing: AppleSpacing.xs,
-                              children: [
-                                if (widget.allowAutoGrid)
-                                  _PresetChip(
-                                    label: tr('Automático'),
-                                    selected: _autoGrid,
-                                    enabled: true,
-                                    onTap: _selectAuto,
-                                  ),
-                                for (final p in DeckLayoutSheet._presets)
-                                  _PresetChip(
-                                    label: '${p.cols}×${p.rows}',
-                                    selected: !_autoGrid &&
-                                        _effectiveCols == p.cols &&
-                                        _effectiveRows == p.rows,
-                                    enabled: p.cols >= _pageMin.columns &&
-                                        p.rows >= _pageMin.rows,
-                                    onTap: () => _selectPreset(p.cols, p.rows),
-                                  ),
-                              ],
+                  if (widget.allowPageScope)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppleSpacing.screen,
+                        0,
+                        AppleSpacing.screen,
+                        AppleSpacing.md,
+                      ),
+                      child: SegmentedControl<DeckGridScope>(
+                        key: const ValueKey('deck-grid-scope-toggle'),
+                        segments: {
+                          DeckGridScope.thisPage: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 5),
+                            child: Text(
+                              tr('Esta página'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ],
-                        ),
+                          ),
+                          DeckGridScope.allPages: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 5),
+                            child: Text(
+                              tr('Todas as páginas'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        },
+                        value: _scope,
+                        onChanged: (v) => setState(() => _scope = v),
                       ),
-                      ListRow(
-                        leading: ListRowIcon(
-                          Icons.view_column_rounded,
-                          color: c.blue,
+                    ),
+
+                  // ---- Grade desta página OU Grade global ----
+                  if (isThisPage)
+                    InsetGroupedSection(
+                      header: tr('Grade de "{name}"', {'name': widget.profile.name}),
+                      footer: _pageInheritsGlobal
+                          ? tr(
+                              'Esta página usa a grade global ({cols}×{rows}). Ajustar aqui altera apenas esta página e não muda as outras.',
+                              {
+                                'cols': _effectiveGlobalCols,
+                                'rows': _effectiveGlobalRows,
+                              },
+                            )
+                          : tr(
+                              'Salvo apenas para "{name}". Outras páginas continuam usando a grade global.',
+                              {'name': widget.profile.name},
+                            ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(AppleSpacing.md),
+                          child: Wrap(
+                            spacing: AppleSpacing.xs,
+                            runSpacing: AppleSpacing.xs,
+                            children: [
+                              _PresetChip(
+                                key: const ValueKey('page-grid-inherit-chip'),
+                                label: tr('Global ({cols}×{rows})', {
+                                  'cols': _effectiveGlobalCols,
+                                  'rows': _effectiveGlobalRows,
+                                }),
+                                selected: _pageInheritsGlobal,
+                                enabled: true,
+                                onTap: _resetPageToGlobal,
+                              ),
+                              for (final p in DeckLayoutSheet._pagePresets)
+                                _PresetChip(
+                                  label: '${p.cols}×${p.rows}',
+                                  selected: !_pageInheritsGlobal &&
+                                      _pageCols == p.cols &&
+                                      _pageRows == p.rows,
+                                  enabled: true,
+                                  onTap: () => _selectPagePreset(p.cols, p.rows),
+                                ),
+                            ],
+                          ),
                         ),
-                        title: tr('Colunas'),
-                        trailing: _GridStepper(
-                          value: _effectiveCols,
-                          min: _pageMin.columns,
-                          max: 10,
-                          onChanged: (v) => setState(() {
-                            _autoGrid = false;
-                            _cols = v;
-                          }),
+                        ListRow(
+                          leading: ListRowIcon(
+                            Icons.view_column_rounded,
+                            color: c.blue,
+                          ),
+                          title: tr('Colunas'),
+                          trailing: _GridStepper(
+                            key: const ValueKey('page-grid-cols-stepper'),
+                            value: _pageInheritsGlobal
+                                ? _effectiveGlobalCols
+                                : _pageCols,
+                            min: 1,
+                            max: 10,
+                            onChanged: (v) => setState(() {
+                              if (_pageInheritsGlobal) {
+                                _pageRows = _effectiveGlobalRows;
+                              }
+                              _pageInheritsGlobal = false;
+                              _pageCols = v;
+                            }),
+                          ),
                         ),
-                      ),
-                      ListRow(
-                        leading: ListRowIcon(
-                          Icons.view_stream_rounded,
-                          color: c.indigo,
+                        ListRow(
+                          leading: ListRowIcon(
+                            Icons.view_stream_rounded,
+                            color: c.indigo,
+                          ),
+                          title: tr('Linhas'),
+                          trailing: _GridStepper(
+                            key: const ValueKey('page-grid-rows-stepper'),
+                            value: _pageInheritsGlobal
+                                ? _effectiveGlobalRows
+                                : _pageRows,
+                            min: 1,
+                            max: 10,
+                            onChanged: (v) => setState(() {
+                              if (_pageInheritsGlobal) {
+                                _pageCols = _effectiveGlobalCols;
+                              }
+                              _pageInheritsGlobal = false;
+                              _pageRows = v;
+                            }),
+                          ),
                         ),
-                        title: tr('Linhas'),
-                        trailing: _GridStepper(
-                          value: _effectiveRows,
-                          min: _pageMin.rows,
-                          max: 10,
-                          onChanged: (v) => setState(() {
-                            _autoGrid = false;
-                            _rows = v;
-                          }),
+                        if (plan != null && plan.needsRearrange)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppleSpacing.md,
+                              AppleSpacing.xs,
+                              AppleSpacing.md,
+                              AppleSpacing.md,
+                            ),
+                            child: Container(
+                              key: const ValueKey('page-grid-fit-notice'),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: c.orange
+                                    .withValues(alpha: c.isDark ? 0.16 : 0.10),
+                                borderRadius:
+                                    BorderRadius.circular(AppleRadii.sm),
+                                border: Border.all(
+                                  color: c.orange
+                                      .withValues(alpha: c.isDark ? 0.34 : 0.24),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.info_outline_rounded,
+                                    size: 16,
+                                    color: c.orange,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      plan.needsExpand
+                                          ? tr(
+                                              'Todos os {n} botões precisam de pelo menos {cols}×{rows}. Ao salvar você escolhe reorganizar e expandir sem perder nenhum.',
+                                              {
+                                                'n': widget.profile.buttons.length,
+                                                'cols': plan.requiredColumns,
+                                                'rows': plan.requiredRows,
+                                              },
+                                            )
+                                          : tr(
+                                              'Os botões serão reorganizados para caber em {cols}×{rows} sem apagar nenhum.',
+                                              {
+                                                'cols': _pageCols,
+                                                'rows': _pageRows,
+                                              },
+                                            ),
+                                      style: type.caption1
+                                          .copyWith(color: c.label),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        if (!_pageInheritsGlobal ||
+                            widget.initialPageGrid != null)
+                          ListRow(
+                            key: const ValueKey('page-grid-reset-row'),
+                            leading: ListRowIcon(
+                              Icons.settings_backup_restore_rounded,
+                              color: c.orange,
+                            ),
+                            title: tr('Usar grade global'),
+                            subtitle: tr('Remove o ajuste próprio e volta para {cols}×{rows}', {
+                              'cols': _effectiveGlobalCols,
+                              'rows': _effectiveGlobalRows,
+                            }),
+                            trailing: _pageInheritsGlobal
+                                ? Icon(Icons.check_rounded,
+                                    size: 18, color: c.accent)
+                                : null,
+                            onTap: _resetPageToGlobal,
+                          ),
+                      ],
+                    )
+                  else
+                    InsetGroupedSection(
+                      header: tr('Grade do deck'),
+                      footer: [
+                        tr('Sincronizado com o PC e outros aparelhos.'),
+                        if (constrainedByPage)
+                          tr(
+                            'Mínimo {cols}×{rows} para manter todos os botões desta página.',
+                            {'cols': _pageMin.columns, 'rows': _pageMin.rows},
+                          ),
+                        if (_otherPagesLarger)
+                          tr(
+                            'Outras páginas com mais botões continuam mostrando todos sem perder nenhum.',
+                          ),
+                      ].join(' '),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(AppleSpacing.md),
+                          child: Wrap(
+                            spacing: AppleSpacing.xs,
+                            runSpacing: AppleSpacing.xs,
+                            children: [
+                              if (widget.allowAutoGrid)
+                                _PresetChip(
+                                  label: tr('Automático'),
+                                  selected: _autoGrid,
+                                  enabled: true,
+                                  onTap: _selectAuto,
+                                ),
+                              for (final p in DeckLayoutSheet._globalPresets)
+                                _PresetChip(
+                                  label: '${p.cols}×${p.rows}',
+                                  selected: !_autoGrid &&
+                                      _effectiveGlobalCols == p.cols &&
+                                      _effectiveGlobalRows == p.rows,
+                                  enabled: p.cols >= _pageMin.columns &&
+                                      p.rows >= _pageMin.rows,
+                                  onTap: () =>
+                                      _selectGlobalPreset(p.cols, p.rows),
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                        ListRow(
+                          leading: ListRowIcon(
+                            Icons.view_column_rounded,
+                            color: c.blue,
+                          ),
+                          title: tr('Colunas'),
+                          trailing: _GridStepper(
+                            value: _effectiveGlobalCols,
+                            min: _pageMin.columns,
+                            max: 10,
+                            onChanged: (v) => setState(() {
+                              _autoGrid = false;
+                              _globalCols = v;
+                            }),
+                          ),
+                        ),
+                        ListRow(
+                          leading: ListRowIcon(
+                            Icons.view_stream_rounded,
+                            color: c.indigo,
+                          ),
+                          title: tr('Linhas'),
+                          trailing: _GridStepper(
+                            value: _effectiveGlobalRows,
+                            min: _pageMin.rows,
+                            max: 10,
+                            onChanged: (v) => setState(() {
+                              _autoGrid = false;
+                              _globalRows = v;
+                            }),
+                          ),
+                        ),
+                      ],
+                    ),
 
                   // ---- Aparência local da grade (somente este aparelho) ----
                   InsetGroupedSection(
@@ -438,6 +867,7 @@ class _DeckLayoutSheetState extends State<DeckLayoutSheet> {
 
 class _PresetChip extends StatelessWidget {
   const _PresetChip({
+    super.key,
     required this.label,
     required this.selected,
     required this.enabled,
@@ -491,6 +921,7 @@ class _PresetChip extends StatelessWidget {
 
 class _GridStepper extends StatelessWidget {
   const _GridStepper({
+    super.key,
     required this.value,
     required this.min,
     required this.max,
@@ -506,7 +937,8 @@ class _GridStepper extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = AppleColors.of(context);
     final type = AppleTextStyles.of(context);
-    Widget stepBtn(IconData icon, VoidCallback? onTap) => IconButton(
+    Widget stepBtn(IconData icon, VoidCallback? onTap, Key btnKey) => IconButton(
+          key: btnKey,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints.tightFor(width: 34, height: 34),
           visualDensity: VisualDensity.compact,
@@ -518,7 +950,9 @@ class _GridStepper extends StatelessWidget {
               color: onTap != null ? c.tertiaryFill : Colors.transparent,
               borderRadius: BorderRadius.circular(AppleRadii.xs),
               border: Border.all(
-                color: onTap != null ? c.separator : c.separator.withValues(alpha: 0.4),
+                color: onTap != null
+                    ? c.separator
+                    : c.separator.withValues(alpha: 0.4),
                 width: 1,
               ),
             ),
@@ -532,7 +966,11 @@ class _GridStepper extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        stepBtn(Icons.remove_rounded, value > min ? () => onChanged(value - 1) : null),
+        stepBtn(
+          Icons.remove_rounded,
+          value > min ? () => onChanged(value - 1) : null,
+          const ValueKey('stepper-dec'),
+        ),
         SizedBox(
           width: 32,
           child: Text(
@@ -544,7 +982,11 @@ class _GridStepper extends StatelessWidget {
             ),
           ),
         ),
-        stepBtn(Icons.add_rounded, value < max ? () => onChanged(value + 1) : null),
+        stepBtn(
+          Icons.add_rounded,
+          value < max ? () => onChanged(value + 1) : null,
+          const ValueKey('stepper-inc'),
+        ),
       ],
     );
   }
@@ -559,7 +1001,7 @@ class _LiveLayoutPreview extends StatelessWidget {
     required this.spacing,
     required this.iconSize,
     required this.showLabels,
-    required this.autoGrid,
+    required this.caption,
   });
 
   final DeckProfile profile;
@@ -568,7 +1010,7 @@ class _LiveLayoutPreview extends StatelessWidget {
   final DeckSpacing spacing;
   final DeckIconSize iconSize;
   final bool showLabels;
-  final bool autoGrid;
+  final String caption;
 
   @override
   Widget build(BuildContext context) {
@@ -582,13 +1024,17 @@ class _LiveLayoutPreview extends StatelessWidget {
     final c = AppleColors.of(context);
     final type = AppleTextStyles.of(context);
     final layout = GridLayout.of(profile.buttons, rows, columns);
+    final isLandscapePreview = columns >= rows;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
+            constraints: BoxConstraints(
+              maxWidth: isLandscapePreview ? 360 : 190,
+              maxHeight: isLandscapePreview ? 190 : 210,
+            ),
             child: Theme(
               data: baseTheme.copyWith(
                 extensions: [
@@ -597,13 +1043,13 @@ class _LiveLayoutPreview extends StatelessWidget {
                 ],
               ),
               child: PhoneFrame(
-                landscape: true,
+                landscape: isLandscapePreview,
                 screenColor: deck.background,
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(
-                    26 * spacing.marginScale,
-                    10 * spacing.marginScale,
-                    14 * spacing.marginScale,
+                    (isLandscapePreview ? 26 : 10) * spacing.marginScale,
+                    (isLandscapePreview ? 10 : 18) * spacing.marginScale,
+                    (isLandscapePreview ? 14 : 10) * spacing.marginScale,
                     10 * spacing.marginScale,
                   ),
                   child: LayoutBuilder(
@@ -683,9 +1129,7 @@ class _LiveLayoutPreview extends StatelessWidget {
         ),
         const SizedBox(height: AppleSpacing.xs),
         Text(
-          '${profile.name} · '
-          '${autoGrid ? '${tr('Automático')} ($columns×$rows)' : '$columns×$rows'}'
-          ' · ${spacing.label}',
+          caption,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: type.caption1.copyWith(color: c.secondaryLabel),

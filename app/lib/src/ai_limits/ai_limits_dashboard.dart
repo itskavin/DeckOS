@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../stream_deck/widgets/usage_bars.dart';
 import 'ai_limits_models.dart';
 import 'ai_limits_tile.dart';
+import 'ai_provider_icon.dart';
 import 'ai_provider_style.dart';
 
 /// Visual building blocks of Settings → AI Limits: a glanceable overview, one usage card per
@@ -375,22 +376,16 @@ class AiAccountUsageCard extends StatelessWidget {
                 // Header
                 Row(
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            accent.withValues(alpha: dark ? 0.34 : 0.22),
-                            accent.withValues(alpha: dark ? 0.16 : 0.10),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: accent.withValues(alpha: 0.35), width: 0.8),
-                      ),
-                      child: Icon(style.icon, size: 20, color: accent),
+                    AiProviderBadge(
+                      style: style,
+                      size: 40,
+                      iconSize: 21,
+                      dark: dark,
+                      borderRadius: 12,
+                      accentOverride: accent,
+                      useBrandGradient: style.key == 'antigravity' ||
+                          style.key == 'gemini_cli' ||
+                          style.key == 'gemini_web',
                     ),
                     const SizedBox(width: AppleSpacing.sm),
                     Expanded(

@@ -8,6 +8,15 @@ namespace DeckOS.Models
         public string Name { get; set; } = "New Profile";
         public int Rows { get; set; } = 3;
         public int Columns { get; set; } = 4;
+
+        /// <summary>
+        /// Optional per-page grid override. When both are set (&gt;= 1), this page uses
+        /// its own grid dimensions instead of inheriting the global deck grid.
+        /// Null = inherit the global deck grid.
+        /// </summary>
+        public int? CustomRows { get; set; }
+        public int? CustomColumns { get; set; }
+
         public bool IsDefault { get; set; } = false;
         public List<DeckButton> Buttons { get; set; } = new List<DeckButton>();
 

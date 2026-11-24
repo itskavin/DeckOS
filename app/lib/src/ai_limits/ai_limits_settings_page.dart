@@ -10,6 +10,7 @@ import '../connection/pc_store.dart';
 import 'ai_limits_models.dart';
 import 'ai_limits_dashboard.dart';
 import 'ai_limits_store.dart';
+import 'ai_provider_icon.dart';
 import 'ai_provider_style.dart';
 
 /// Settings → AI Limits screen.
@@ -631,7 +632,12 @@ class _SourceRow extends StatelessWidget {
     ];
 
     return ListRow(
-      leading: ListRowIcon(_sourceIcon(source.kind), color: statusColor),
+      leading: AiSourceKindBadge(
+        kind: source.kind,
+        color: statusColor,
+        dark: c.isDark,
+        size: 30,
+      ),
       title: source.label,
       subtitle: subParts.join(' · '),
       trailing: Row(
@@ -872,7 +878,12 @@ class _DetectedSection extends StatelessWidget {
             };
             return ListRow(
               key: ValueKey('ai-detected-${t.kind}'),
-              leading: ListRowIcon(_sourceIcon(t.kind), color: _sourceColor(c, t.kind)),
+              leading: AiSourceKindBadge(
+                kind: t.kind,
+                color: _sourceColor(c, t.kind),
+                dark: c.isDark,
+                size: 30,
+              ),
               title: t.title,
               subtitle: t.detail,
               trailing: Container(
@@ -1248,9 +1259,11 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
         }
 
         return ListRow(
-          leading: ListRowIcon(
-            _sourceIcon(cap.kind),
+          leading: AiSourceKindBadge(
+            kind: cap.kind,
             color: _sourceColor(c, cap.kind),
+            dark: c.isDark,
+            size: 30,
           ),
           title: cap.title,
           subtitle: _friendlyPickerSubtitle(cap, detected, existing),
@@ -1401,10 +1414,11 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  _sourceIcon(kind),
-                  size: 18,
+                AiSourceKindBadge(
+                  kind: kind,
                   color: _sourceColor(c, kind),
+                  dark: c.isDark,
+                  size: 24,
                 ),
                 const SizedBox(width: AppleSpacing.sm),
                 Expanded(
@@ -1463,6 +1477,12 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
                   children: [
                     for (final p in _manualProviders)
                       ChoiceChip(
+                        avatar: AiProviderIcon(
+                          style: AiProviderStyle.resolve(p.$1),
+                          size: 16,
+                          color: AiProviderStyle.resolve(p.$1).legibleOn(dark: c.isDark),
+                          useBrandGradient: p.$1 == 'antigravity' || p.$1 == 'gemini_web',
+                        ),
                         label: Text(p.$2),
                         selected: _manualProvider == p.$1,
                         onSelected: (_) => setState(() {
@@ -1621,9 +1641,14 @@ class _AiLimitsSourceWizardPageState extends State<_AiLimitsSourceWizardPage> {
                 ),
               for (final a in _testResult!.accounts)
                 ListRow(
-                  leading: ListRowIcon(
-                    AiProviderStyle.resolve(a.provider).icon,
-                    color: AiProviderStyle.resolve(a.provider).legibleOn(dark: c.isDark),
+                  leading: AiProviderBadge(
+                    style: AiProviderStyle.resolve(a.provider),
+                    size: 30,
+                    iconSize: 17,
+                    dark: c.isDark,
+                    useBrandGradient: a.provider == 'antigravity' ||
+                        a.provider == 'gemini_cli' ||
+                        a.provider == 'gemini_web',
                   ),
                   title: a.displayTitle,
                   subtitle: _AiLimitsSettingsPageState._accountPreview(a),
@@ -2017,15 +2042,6 @@ class _GuidedHookSetupSheetState extends State<_GuidedHookSetupSheet> {
     );
   }
 }
-
-IconData _sourceIcon(String kind) => switch (kind) {
-      'cliproxy_passive' => Icons.lan_rounded,
-      'codex_local' => CupertinoIcons.chevron_left_slash_chevron_right,
-      'claude_statusline' => CupertinoIcons.sparkles,
-      'gemini_local_otel' => CupertinoIcons.bolt_fill,
-      'manual_dashboard' => Icons.open_in_new_rounded,
-      _ => CupertinoIcons.gauge,
-    };
 
 Color _sourceColor(AppleColors c, String kind) => switch (kind) {
       'cliproxy_passive' => c.blue,

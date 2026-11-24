@@ -238,4 +238,76 @@ class SlotOps {
   /// Quantos botões aparecem numa grade de [rows]×[columns].
   static int visibleCount(List<DeckButton> buttons, int rows, int columns) =>
       GridLayout.of(buttons, rows, columns).placements.length;
+
+  /// Non-destructive plan to fit [buttons] into a target [rows]×[columns] grid.
+  /// Never drops buttons, labels, actions, or dynamic bindings:
+  /// - [GridFitStatus.fitsAsIs]: every button already sits within [rows]×[columns].
+  /// - [GridFitStatus.needsReflow]: all buttons fit inside [rows]×[columns] once rearranged.
+  /// - [GridFitStatus.needsExpandAndReflow]: even after rearranging, at least [requiredRows]
+  ///   rows are needed so zero buttons are lost or overlapped.
+  static GridFitPlan planGridFit(
+    List<DeckButton> buttons, {
+    required int rows,
+    required int columns,
+  }) {
+    final targetRows = rows.clamp(1, 20);
+    final targetCols = columns.clamp(1, 20);
+    if (buttons.isEmpty) {
+      return GridFitPlan(
+        status: GridFitStatus.fitsAsIs,
+        buttons: buttons,
+        requiredRows: targetRows,
+        requiredColumns: targetCols,
+        narrowedSpanCount: 0,
+      );
+    }
+    final min = minGrid(buttons);
+    if (min.rows <= targetRows && min.columns <= targetCols) {
+      return GridFitPlan(
+        status: GridFitStatus.fitsAsIs,
+        buttons: buttons,
+        requiredRows: targetRows,
+        requiredColumns: targetCols,
+        narrowedSpanCount: 0,
+      );
+    }
+    final reflowed = reflowButtons(buttons, targetCols);
+    final needed = minGrid(reflowed);
+    var narrowed = 0;
+    for (final b in buttons) {
+      if (b.columnSpan > targetCols) narrowed++;
+    }
+    final fitsRequested = needed.rows <= targetRows;
+    return GridFitPlan(
+      status: fitsRequested
+          ? GridFitStatus.needsReflow
+          : GridFitStatus.needsExpandAndReflow,
+      buttons: reflowed,
+      requiredRows: math.max(targetRows, needed.rows),
+      requiredColumns: math.max(targetCols, needed.columns),
+      narrowedSpanCount: narrowed,
+    );
+  }
+}
+
+enum GridFitStatus { fitsAsIs, needsReflow, needsExpandAndReflow }
+
+class GridFitPlan {
+  final GridFitStatus status;
+  final List<DeckButton> buttons;
+  final int requiredRows;
+  final int requiredColumns;
+  final int narrowedSpanCount;
+
+  const GridFitPlan({
+    required this.status,
+    required this.buttons,
+    required this.requiredRows,
+    required this.requiredColumns,
+    required this.narrowedSpanCount,
+  });
+
+  bool get fitsAsIs => status == GridFitStatus.fitsAsIs;
+  bool get needsRearrange => status != GridFitStatus.fitsAsIs;
+  bool get needsExpand => status == GridFitStatus.needsExpandAndReflow;
 }

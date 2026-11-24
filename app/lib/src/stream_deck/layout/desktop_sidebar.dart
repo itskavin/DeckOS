@@ -12,7 +12,7 @@ import 'grid_placement.dart';
 import 'slot_ops.dart';
 
 /// Ação do menu de uma página.
-enum PageMenuAction { rename, settings, duplicate, share, delete }
+enum PageMenuAction { rename, pageGrid, settings, duplicate, share, delete }
 
 /// Uma linha da lista de páginas: o perfil e o recuo (pasta dentro de outra página).
 typedef PageEntry = ({DeckProfile profile, int depth});
@@ -582,6 +582,7 @@ class _PageRowState extends State<_PageRow> {
       ),
       items: [
         item(PageMenuAction.rename, Icons.edit_outlined, tr('Renomear')),
+        item(PageMenuAction.pageGrid, Icons.grid_on_rounded, tr('Grade desta página')),
         item(PageMenuAction.settings, Icons.auto_awesome_outlined, tr('Troca automática…')),
         item(PageMenuAction.duplicate, Icons.content_copy_rounded, tr('Duplicar')),
         item(PageMenuAction.share, Icons.share_outlined, tr('Compartilhar')),
@@ -598,9 +599,12 @@ class _PageRowState extends State<_PageRow> {
     final c = AppleColors.of(context);
     final type = AppleTextStyles.of(context);
     final p = widget.profile;
+    final pageGrid = p.customGrid;
+    final baseRows = pageGrid?.rows ?? widget.rows;
+    final baseCols = pageGrid?.columns ?? widget.columns;
     final min = SlotOps.minGrid(p.buttons);
-    final effRows = math.max(widget.rows, min.rows);
-    final effCols = math.max(widget.columns, min.columns);
+    final effRows = math.max(baseRows, min.rows);
+    final effCols = math.max(baseCols, min.columns);
     final total = effRows * effCols;
     final used = SlotOps.visibleCount(p.buttons, effRows, effCols);
     final isFolder = widget.depth > 0;
@@ -657,7 +661,7 @@ class _PageRowState extends State<_PageRow> {
           child: Row(
             children: [
               PageThumbnail(
-                  profile: p, rows: widget.rows, columns: widget.columns, width: isFolder ? 44 : 56),
+                  profile: p, rows: baseRows, columns: baseCols, width: isFolder ? 44 : 56),
               const SizedBox(width: AppleSpacing.sm),
               Expanded(
                 child: Column(
@@ -674,10 +678,13 @@ class _PageRowState extends State<_PageRow> {
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      isFolder
-                          ? tr('Pasta · {used}/{total}', {'used': used, 'total': total})
-                          : tr('Página {n} · {used}/{total}',
-                              {'n': widget.number, 'used': used, 'total': total}),
+                      [
+                        isFolder
+                            ? tr('Pasta · {used}/{total}', {'used': used, 'total': total})
+                            : tr('Página {n} · {used}/{total}',
+                                {'n': widget.number, 'used': used, 'total': total}),
+                        if (pageGrid != null) '${pageGrid.columns}×${pageGrid.rows}',
+                      ].join(' · '),
                       style: type.caption1.copyWith(color: c.secondaryLabel),
                     ),
                   ],

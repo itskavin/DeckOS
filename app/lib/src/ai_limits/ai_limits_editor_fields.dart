@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'ai_limits_models.dart';
 import 'ai_limits_settings_page.dart';
 import 'ai_limits_store.dart';
+import 'ai_provider_icon.dart';
 import 'ai_provider_style.dart';
 
 /// Editor fields rendered inside `InfoSection` when a deck button uses `dynamicType == 'ai_limits'`.
@@ -91,13 +92,27 @@ class _AiLimitsEditorFieldsState extends State<AiLimitsEditorFields> {
                 for (final a in accounts)
                   DropdownMenuItem(
                     value: a.id,
-                    child: Text(
-                      [
-                        a.displayTitle,
-                        if (a.plan != null && a.plan!.isNotEmpty) '(${a.plan!})',
-                        if (!a.enabled) '· ${tr('Desativado')}',
-                      ].join(' '),
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      children: [
+                        AiProviderIcon(
+                          style: AiProviderStyle.resolve(a.provider),
+                          size: 16,
+                          color: AiProviderStyle.resolve(a.provider).legibleOn(
+                            dark: Theme.of(context).brightness == Brightness.dark,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            [
+                              a.displayTitle,
+                              if (a.plan != null && a.plan!.isNotEmpty) '(${a.plan!})',
+                              if (!a.enabled) '· ${tr('Desativado')}',
+                            ].join(' '),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 if (!selectedExists)

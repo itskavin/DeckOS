@@ -183,7 +183,13 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
     return (rows: lay['rows'] ?? 3, columns: lay['columns'] ?? 5);
   }
 
-  bool get _isLandscape => _landscape ?? (_grid.columns >= _grid.rows);
+  ({int rows, int columns}) _gridFor(DeckProfile? profile) =>
+      profile?.customGrid ?? _grid;
+
+  bool _isLandscapeFor(DeckProfile? profile) {
+    final g = _gridFor(profile);
+    return _landscape ?? (g.columns >= g.rows);
+  }
 
   GlobalKey<ButtonPropertyPanelState> _keyFor(DeckButton b) {
     final id = b.id.isEmpty ? 'novo:${b.row}:${b.column}' : b.id;
@@ -309,7 +315,7 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
       return;
     }
     if (button != null && range && _anchor != null) {
-      final g = _grid;
+      final g = _gridFor(profile);
       int order(Slot s) => s.row * g.columns + s.column;
       final a = math.min(order(_anchor!), order(slot)), b = math.max(order(_anchor!), order(slot));
       setState(() {
@@ -333,7 +339,7 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
   Future<void> _onDrop(DeckDrag data, Slot target) async {
     final profile = _ctl.currentProfile.value;
     if (profile == null) return;
-    final g = _grid;
+    final g = _gridFor(profile);
     final min = SlotOps.minGrid(profile.buttons);
     final rows = math.max(g.rows, min.rows);
     final cols = math.max(g.columns, min.columns);
@@ -370,11 +376,16 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
     }
   }
 
-  Future<void> _openLayoutSheet() async {
-    final current = _ctl.currentProfile.value;
+  Future<void> _openLayoutSheet({
+    DeckProfile? targetProfile,
+    DeckGridScope? initialScope,
+  }) async {
+    final current = targetProfile ?? _ctl.currentProfile.value;
     if (current == null) return;
     final g = _grid;
     final tc = ThemeController.instance;
+    final scope = initialScope ??
+        (current.hasCustomGrid ? DeckGridScope.thisPage : DeckGridScope.allPages);
     final result = await DeckLayoutSheet.show(
       context,
       profile: current,
@@ -386,6 +397,8 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
       autoColumns: 5,
       allowAutoGrid: false,
       initialSettings: tc.settings.value,
+      initialScope: scope,
+      initialPageGrid: current.customGrid,
     );
     if (result == null || !mounted) return;
     await tc.update(tc.settings.value.copyWith(
@@ -393,6 +406,24 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
       iconSize: result.iconSize,
       showLabels: () => result.showLabels,
     ));
+    if (result.scope == DeckGridScope.thisPage) {
+      final ({int rows, int columns})? nextOverride =
+          result.resetPageGrid ? null : (rows: result.rows, columns: result.columns);
+      var updated = current.withCustomGrid(nextOverride);
+      if (result.updatedButtons != null) {
+        updated = updated.copyWith(
+          buttons: List<DeckButton>.from(result.updatedButtons!),
+        );
+      }
+      final err = await _ctl.updateProfileFull(
+        updated,
+        undoLabel: tr('Grade desta página'),
+      );
+      if (mounted) {
+        _toast(err ?? tr('Salvo. O celular já mostra.'));
+      }
+      return;
+    }
     if (result.rows != g.rows || result.columns != g.columns) {
       try {
         await Injector.get<DeckOSClient>().saveLayout(result.rows, result.columns);
@@ -411,7 +442,7 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
   Future<void> _addItem(LibraryItem item, {Slot? at}) async {
     final profile = _ctl.currentProfile.value;
     if (profile == null) return;
-    final g = _grid;
+    final g = _gridFor(profile);
     var slot = at;
     if (slot == null && _selection.length == 1 && SlotOps.at(profile.buttons, _selection.first) == null) {
       slot = _selection.first;
@@ -511,6 +542,11 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
     switch (action) {
       case PageMenuAction.rename:
         _sidebarKey.currentState?.startRename(p.id);
+      case PageMenuAction.pageGrid:
+        await _openLayoutSheet(
+          targetProfile: p,
+          initialScope: DeckGridScope.thisPage,
+        );
       case PageMenuAction.settings:
         ProfileSettingsDialog.show(
             context, p, (np) => _ctl.updateProfileFull(np, undoLabel: tr('Editar página')));
@@ -746,8 +782,8 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
         ),
       );
     }
-    final g = _grid;
-    final landscape = _isLandscape;
+    final g = _gridFor(current);
+    final landscape = _isLandscapeFor(current);
     // Os pontinhos contam só as páginas de cima; numa pasta, nenhum fica aceso.
     final topPages = topLevelPages(profiles);
     final pageIndex = topPages.indexWhere((p) => p.id == current.id);
@@ -1015,7 +1051,7 @@ class _SteamDeckDesktopLayoutState extends State<SteamDeckDesktopLayout> {
                             padding: EdgeInsets.symmetric(horizontal: 6),
                             child: Icon(Icons.stay_current_portrait_rounded, size: 16))),
                   },
-                  value: _isLandscape,
+                  value: _isLandscapeFor(current),
                   onChanged: (v) => setState(() => _landscape = v),
                 ),
                 const SizedBox(width: AppleSpacing.xs),

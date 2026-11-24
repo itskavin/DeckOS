@@ -440,6 +440,8 @@ class StreamDeckController {
       name: name,
       rows: source.rows,
       columns: source.columns,
+      customRows: source.customRows,
+      customColumns: source.customColumns,
       buttons: [for (final b in source.buttons) b.copyWith(id: '$stamp-${n++}')],
       autoSwitchApps: null,
     );

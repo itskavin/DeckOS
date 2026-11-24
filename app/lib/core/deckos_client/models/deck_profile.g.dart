@@ -11,6 +11,8 @@ DeckProfile _$DeckProfileFromJson(Map<String, dynamic> json) => DeckProfile(
   name: json['name'] as String? ?? 'New Profile',
   rows: (json['rows'] as num?)?.toInt() ?? 3,
   columns: (json['columns'] as num?)?.toInt() ?? 4,
+  customRows: (json['customRows'] as num?)?.toInt(),
+  customColumns: (json['customColumns'] as num?)?.toInt(),
   isDefault: json['isDefault'] as bool? ?? false,
   buttons:
       (json['buttons'] as List<dynamic>?)
@@ -28,6 +30,8 @@ Map<String, dynamic> _$DeckProfileToJson(DeckProfile instance) =>
       'name': instance.name,
       'rows': instance.rows,
       'columns': instance.columns,
+      'customRows': ?instance.customRows,
+      'customColumns': ?instance.customColumns,
       'isDefault': instance.isDefault,
       'buttons': instance.buttons,
       'autoSwitchApps': instance.autoSwitchApps,

@@ -17,6 +17,14 @@ class DeckProfile {
   @JsonKey(name: 'columns')
   final int columns;
 
+  /// Optional per-page grid override. Null = inherit the global deck grid.
+  @JsonKey(name: 'customRows', includeIfNull: false)
+  final int? customRows;
+
+  /// Optional per-page grid override. Null = inherit the global deck grid.
+  @JsonKey(name: 'customColumns', includeIfNull: false)
+  final int? customColumns;
+
   @JsonKey(name: 'isDefault')
   final bool isDefault;
 
@@ -32,16 +40,44 @@ class DeckProfile {
     this.name = 'New Profile',
     this.rows = 3,
     this.columns = 4,
+    this.customRows,
+    this.customColumns,
     this.isDefault = false,
     this.buttons = const [],
     this.autoSwitchApps,
   });
+
+  /// True when this page has an explicit per-page grid override instead of inheriting global.
+  bool get hasCustomGrid =>
+      customRows != null &&
+      customColumns != null &&
+      customRows! > 0 &&
+      customColumns! > 0;
+
+  /// Per-page grid dimensions when overridden, or null when inheriting the global grid.
+  ({int rows, int columns})? get customGrid =>
+      hasCustomGrid ? (rows: customRows!, columns: customColumns!) : null;
+
+  /// Returns a copy with an explicit per-page grid override (or null to inherit global).
+  DeckProfile withCustomGrid(({int rows, int columns})? grid) => DeckProfile(
+        id: id,
+        name: name,
+        rows: rows,
+        columns: columns,
+        customRows: grid?.rows,
+        customColumns: grid?.columns,
+        isDefault: isDefault,
+        buttons: buttons,
+        autoSwitchApps: autoSwitchApps,
+      );
 
   /// Cópia com campos trocados, preservando os demais.
   DeckProfile copyWith({
     String? name,
     int? rows,
     int? columns,
+    int? Function()? customRows,
+    int? Function()? customColumns,
     List<DeckButton>? buttons,
     List<String>? autoSwitchApps,
   }) =>
@@ -50,6 +86,8 @@ class DeckProfile {
         name: name ?? this.name,
         rows: rows ?? this.rows,
         columns: columns ?? this.columns,
+        customRows: customRows != null ? customRows() : this.customRows,
+        customColumns: customColumns != null ? customColumns() : this.customColumns,
         isDefault: isDefault,
         buttons: buttons ?? this.buttons,
         autoSwitchApps: autoSwitchApps ?? this.autoSwitchApps,

@@ -11,6 +11,7 @@ import '../stream_deck/widgets/usage_bars.dart' show CapsuleBar;
 import 'ai_limits_models.dart';
 import 'ai_limits_settings_page.dart';
 import 'ai_limits_store.dart';
+import 'ai_provider_icon.dart';
 import 'ai_provider_style.dart';
 
 /// Real live-bound AI quota tile drawn inside DeckOS's native [DeckTile] frame so
@@ -106,7 +107,7 @@ class _AiLimitsTileBody extends StatelessWidget {
     // State 1: Unbound tile (user placed tile before picking an account).
     if (!config.isBound) {
       return _StatusTileLayout(
-        icon: style.icon,
+        style: style,
         accent: accent,
         dark: dark,
         fg: fg,
@@ -124,7 +125,7 @@ class _AiLimitsTileBody extends StatelessWidget {
           ? customLabel!
           : (config.aliasHint.isNotEmpty ? config.aliasHint : style.displayName);
       return _LoadingTileLayout(
-        icon: style.icon,
+        style: style,
         accent: accent,
         dark: dark,
         fg: fg,
@@ -141,7 +142,7 @@ class _AiLimitsTileBody extends StatelessWidget {
               : style.displayName);
       if (!hasSnapshot && storeError != null) {
         return _StatusTileLayout(
-          icon: style.icon,
+          style: style,
           accent: accent,
           dark: dark,
           fg: fg,
@@ -153,7 +154,8 @@ class _AiLimitsTileBody extends StatelessWidget {
         );
       }
       return _StatusTileLayout(
-        icon: CupertinoIcons.exclamationmark_triangle_fill,
+        style: style,
+        overrideIcon: CupertinoIcons.exclamationmark_triangle_fill,
         accent: DeckTileColors.orange,
         dark: dark,
         fg: fg,
@@ -196,7 +198,7 @@ class _AiLimitsTileBody extends StatelessWidget {
             acct: acct,
             config: config,
             windows: windows,
-            icon: style.icon,
+            style: style,
             accent: accent,
             dark: dark,
             fg: fg,
@@ -214,7 +216,7 @@ class _AiLimitsTileBody extends StatelessWidget {
             acct: acct,
             config: config,
             windows: windows,
-            icon: style.icon,
+            style: style,
             accent: accent,
             dark: dark,
             fg: fg,
@@ -232,7 +234,7 @@ class _AiLimitsTileBody extends StatelessWidget {
           acct: acct,
           config: config,
           windows: windows,
-          icon: style.icon,
+          style: style,
           accent: accent,
           dark: dark,
           fg: fg,
@@ -367,7 +369,7 @@ class _SpaciousAiTile extends StatelessWidget {
   final AiLimitsAccount acct;
   final AiLimitsTileConfig config;
   final List<AiLimitsWindow> windows;
-  final IconData icon;
+  final AiProviderStyle style;
   final Color accent;
   final bool dark;
   final Color fg;
@@ -384,7 +386,7 @@ class _SpaciousAiTile extends StatelessWidget {
     required this.acct,
     required this.config,
     required this.windows,
-    required this.icon,
+    required this.style,
     required this.accent,
     required this.dark,
     required this.fg,
@@ -566,7 +568,7 @@ class _SpaciousAiTile extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _SpaciousHeader(
-                icon: icon,
+                style: style,
                 accent: accent,
                 dark: dark,
                 fg: fg,
@@ -612,7 +614,7 @@ class _SpaciousAiTile extends StatelessWidget {
 }
 
 class _SpaciousHeader extends StatelessWidget {
-  final IconData icon;
+  final AiProviderStyle style;
   final Color accent;
   final bool dark;
   final Color fg;
@@ -625,7 +627,7 @@ class _SpaciousHeader extends StatelessWidget {
   final bool isRoomy;
 
   const _SpaciousHeader({
-    required this.icon,
+    required this.style,
     required this.accent,
     required this.dark,
     required this.fg,
@@ -641,32 +643,23 @@ class _SpaciousHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final badgeSize = isRoomy ? 40.0 : (tight ? 30.0 : 35.0);
-    final iconSize = isRoomy ? 20.0 : (tight ? 15.5 : 18.0);
+    final iconSize = isRoomy ? 21.0 : (tight ? 16.0 : 19.0);
     final titleSize = isRoomy ? 17.5 : (tight ? 14.0 : 16.0);
     final subSize = isRoomy ? 12.5 : (tight ? 10.5 : 11.8);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Container(
-          width: badgeSize,
-          height: badgeSize,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                accent.withValues(alpha: dark ? 0.30 : 0.20),
-                accent.withValues(alpha: dark ? 0.14 : 0.09),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(isRoomy ? 11.0 : 9.5),
-            border: Border.all(
-              color: accent.withValues(alpha: dark ? 0.40 : 0.28),
-              width: 0.9,
-            ),
-          ),
-          child: Icon(icon, size: iconSize, color: accent),
+        AiProviderBadge(
+          style: style,
+          size: badgeSize,
+          iconSize: iconSize,
+          dark: dark,
+          borderRadius: isRoomy ? 11.0 : 9.5,
+          accentOverride: accent,
+          useBrandGradient: style.key == 'antigravity' ||
+              style.key == 'gemini_cli' ||
+              style.key == 'gemini_web',
         ),
         SizedBox(width: tight ? 8 : 10),
         Expanded(
@@ -1303,7 +1296,7 @@ class _CompactHorizontalAiTile extends StatelessWidget {
   final AiLimitsAccount acct;
   final AiLimitsTileConfig config;
   final List<AiLimitsWindow> windows;
-  final IconData icon;
+  final AiProviderStyle style;
   final Color accent;
   final bool dark;
   final Color fg;
@@ -1319,7 +1312,7 @@ class _CompactHorizontalAiTile extends StatelessWidget {
     required this.acct,
     required this.config,
     required this.windows,
-    required this.icon,
+    required this.style,
     required this.accent,
     required this.dark,
     required this.fg,
@@ -1452,14 +1445,17 @@ class _CompactHorizontalAiTile extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: dark ? 0.24 : 0.15),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Icon(icon, size: 13.5, color: accent),
+                  AiProviderBadge(
+                    style: style,
+                    size: 24,
+                    iconSize: 14,
+                    dark: dark,
+                    borderRadius: 7,
+                    showBorder: false,
+                    accentOverride: accent,
+                    useBrandGradient: style.key == 'antigravity' ||
+                        style.key == 'gemini_cli' ||
+                        style.key == 'gemini_web',
                   ),
                   const SizedBox(width: 7),
                   Expanded(
@@ -1501,7 +1497,7 @@ class _SquareAiTile extends StatelessWidget {
   final AiLimitsAccount acct;
   final AiLimitsTileConfig config;
   final List<AiLimitsWindow> windows;
-  final IconData icon;
+  final AiProviderStyle style;
   final Color accent;
   final bool dark;
   final Color fg;
@@ -1516,7 +1512,7 @@ class _SquareAiTile extends StatelessWidget {
     required this.acct,
     required this.config,
     required this.windows,
-    required this.icon,
+    required this.style,
     required this.accent,
     required this.dark,
     required this.fg,
@@ -1637,14 +1633,17 @@ class _SquareAiTile extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: micro ? 16 : (tiny ? 18 : 24),
-                    height: micro ? 16 : (tiny ? 18 : 24),
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: dark ? 0.24 : 0.15),
-                      borderRadius: BorderRadius.circular(tiny ? 5 : 7),
-                    ),
-                    child: Icon(icon, size: micro ? 9.5 : (tiny ? 10.5 : 13.5), color: accent),
+                  AiProviderBadge(
+                    style: style,
+                    size: micro ? 16 : (tiny ? 18 : 24),
+                    iconSize: micro ? 10 : (tiny ? 11 : 14),
+                    dark: dark,
+                    borderRadius: tiny ? 5 : 7,
+                    showBorder: false,
+                    accentOverride: accent,
+                    useBrandGradient: style.key == 'antigravity' ||
+                        style.key == 'gemini_cli' ||
+                        style.key == 'gemini_web',
                   ),
                   const SizedBox(width: 5),
                   Expanded(
@@ -1811,7 +1810,8 @@ class _CompactBadge extends StatelessWidget {
 }
 
 class _StatusTileLayout extends StatelessWidget {
-  final IconData icon;
+  final AiProviderStyle style;
+  final IconData? overrideIcon;
   final Color accent;
   final bool dark;
   final Color fg;
@@ -1822,7 +1822,8 @@ class _StatusTileLayout extends StatelessWidget {
   final String? hint;
 
   const _StatusTileLayout({
-    required this.icon,
+    required this.style,
+    this.overrideIcon,
     required this.accent,
     required this.dark,
     required this.fg,
@@ -1854,15 +1855,33 @@ class _StatusTileLayout extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Container(
-                        width: micro ? 16 : (small ? 22 : 30),
-                        height: micro ? 16 : (small ? 22 : 30),
-                        decoration: BoxDecoration(
-                          color: accent.withValues(alpha: dark ? 0.24 : 0.14),
-                          borderRadius: BorderRadius.circular(micro ? 5 : (small ? 6 : 8)),
+                      if (overrideIcon != null)
+                        Container(
+                          width: micro ? 16 : (small ? 22 : 30),
+                          height: micro ? 16 : (small ? 22 : 30),
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: dark ? 0.24 : 0.14),
+                            borderRadius: BorderRadius.circular(micro ? 5 : (small ? 6 : 8)),
+                          ),
+                          child: Icon(
+                            overrideIcon,
+                            size: micro ? 9.5 : (small ? 12 : 16),
+                            color: accent,
+                          ),
+                        )
+                      else
+                        AiProviderBadge(
+                          style: style,
+                          size: micro ? 16 : (small ? 22 : 30),
+                          iconSize: micro ? 10 : (small ? 12.5 : 16.5),
+                          dark: dark,
+                          borderRadius: micro ? 5 : (small ? 6 : 8),
+                          showBorder: !micro,
+                          accentOverride: accent,
+                          useBrandGradient: style.key == 'antigravity' ||
+                              style.key == 'gemini_cli' ||
+                              style.key == 'gemini_web',
                         ),
-                        child: Icon(icon, size: micro ? 9.5 : (small ? 12 : 16), color: accent),
-                      ),
                       SizedBox(width: micro ? 4 : 8),
                       Expanded(
                         child: Text(
@@ -1934,14 +1953,14 @@ class _StatusTileLayout extends StatelessWidget {
 }
 
 class _LoadingTileLayout extends StatelessWidget {
-  final IconData icon;
+  final AiProviderStyle style;
   final Color accent;
   final bool dark;
   final Color fg;
   final String title;
 
   const _LoadingTileLayout({
-    required this.icon,
+    required this.style,
     required this.accent,
     required this.dark,
     required this.fg,
@@ -1958,7 +1977,14 @@ class _LoadingTileLayout extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 16, color: accent),
+              AiProviderIcon(
+                style: style,
+                size: 16,
+                color: accent,
+                useBrandGradient: style.key == 'antigravity' ||
+                    style.key == 'gemini_cli' ||
+                    style.key == 'gemini_web',
+              ),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
@@ -2165,14 +2191,16 @@ class _AiLimitsDetailSheetState extends State<_AiLimitsDetailSheet> {
                   children: [
                     Row(
                       children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: dark ? 0.22 : 0.14),
-                            borderRadius: BorderRadius.circular(AppleRadii.sm),
-                          ),
-                          child: Icon(style.icon, size: 20, color: accent),
+                        AiProviderBadge(
+                          style: style,
+                          size: 40,
+                          iconSize: 21,
+                          dark: dark,
+                          borderRadius: AppleRadii.sm,
+                          accentOverride: accent,
+                          useBrandGradient: style.key == 'antigravity' ||
+                              style.key == 'gemini_cli' ||
+                              style.key == 'gemini_web',
                         ),
                         const SizedBox(width: AppleSpacing.sm),
                         Expanded(

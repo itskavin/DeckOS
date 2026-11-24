@@ -69,7 +69,7 @@ class StreamDeckPage extends StatefulWidget {
   State<StreamDeckPage> createState() => _StreamDeckPageState();
 }
 
-enum _DeckOverflowAction { profile, fullscreen }
+enum _DeckOverflowAction { pageGrid, profile, fullscreen }
 
 class _StreamDeckPageState extends State<StreamDeckPage> {
   final StreamDeckController controller = StreamDeckController();
@@ -92,6 +92,8 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
   bool _editMode = false;
   String? _editProfileId;
   List<DeckButton>? _editDraft;
+  ({int rows, int columns})? _editCustomGrid;
+  bool _editCustomGridModified = false;
   final List<List<DeckButton>> _editUndo = [];
   bool _editDirty = false;
   bool _savingEdit = false;
@@ -448,6 +450,8 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
       _editMode = true;
       _editProfileId = profile.id;
       _editDraft = List<DeckButton>.from(profile.buttons);
+      _editCustomGrid = profile.customGrid;
+      _editCustomGridModified = false;
       _editUndo.clear();
       _editDirty = false;
     });
@@ -460,6 +464,8 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
       _editMode = false;
       _editProfileId = null;
       _editDraft = null;
+      _editCustomGrid = null;
+      _editCustomGridModified = false;
       _editUndo.clear();
       _editDirty = false;
       _pendingProfileReload = false;
@@ -506,8 +512,12 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
     }
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _savingEdit = true);
+    var updated = target.copyWith(buttons: List<DeckButton>.from(_editDraft!));
+    if (_editCustomGridModified) {
+      updated = updated.withCustomGrid(_editCustomGrid);
+    }
     final error = await controller.updateProfileFull(
-      target.copyWith(buttons: List<DeckButton>.from(_editDraft!)),
+      updated,
       undoLabel: tr('Organizar layout'),
     );
     if (!mounted) return;
@@ -560,7 +570,7 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
     });
   }
 
-  Future<void> _openLayoutSheet() async {
+  Future<void> _openLayoutSheet({DeckGridScope? initialScope}) async {
     final profiles = controller.profiles.value;
     final active = _activeProfile(profiles);
     if (active == null) return;
@@ -573,26 +583,35 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
       spacing: tc.settings.value.spacing,
       allowReflow: false,
     );
+    final editingThis = _editMode && _editProfileId == active.id && _editDraft != null;
+    final activePageGrid =
+        editingThis && _editCustomGridModified ? _editCustomGrid : active.customGrid;
     // Se estamos editando, a prévia usa o rascunho atual para refletir posições novas.
-    final previewProfile = (_editMode && _editProfileId == active.id && _editDraft != null)
-        ? active.copyWith(buttons: _editDraft!)
+    final previewProfile = editingThis
+        ? active.copyWith(buttons: _editDraft!).withCustomGrid(activePageGrid)
         : active;
     final custom = tc.customGrid.value;
-    final initialRows = custom?.rows ?? _sharedGrid?['rows'] ?? currentGrid?.deckRows ?? autoFit.deckRows;
-    final initialCols = custom?.columns ?? _sharedGrid?['columns'] ?? currentGrid?.deckCols ?? autoFit.deckCols;
+    final globalRows =
+        custom?.rows ?? _sharedGrid?['rows'] ?? autoFit.deckRows;
+    final globalCols =
+        custom?.columns ?? _sharedGrid?['columns'] ?? autoFit.deckCols;
+    final effectiveScope = initialScope ??
+        (activePageGrid != null ? DeckGridScope.thisPage : DeckGridScope.allPages);
 
     final result = await _withChromePaused(
       () => DeckLayoutSheet.show(
         context,
         profile: previewProfile,
         allProfiles: profiles,
-        initialRows: initialRows,
-        initialColumns: initialCols,
+        initialRows: globalRows,
+        initialColumns: globalCols,
         initialAutoGrid: !kIsWeb && custom == null,
         autoRows: autoFit.deckRows,
         autoColumns: autoFit.deckCols,
         allowAutoGrid: !kIsWeb,
         initialSettings: tc.settings.value,
+        initialScope: effectiveScope,
+        initialPageGrid: activePageGrid,
       ),
     );
     if (result == null || !mounted) return;
@@ -604,7 +623,45 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
       showLabels: () => result.showLabels,
     ));
 
-    // 2. Grade compartilhada (PC + outros aparelhos).
+    // 2A. Ajuste somente desta página (persiste no perfil; nunca altera outras páginas nem o global).
+    if (result.scope == DeckGridScope.thisPage) {
+      final ({int rows, int columns})? nextOverride =
+          result.resetPageGrid ? null : (rows: result.rows, columns: result.columns);
+      if (editingThis) {
+        setState(() {
+          if (result.updatedButtons != null) {
+            _editUndo.add(List<DeckButton>.from(_editDraft!));
+            _editDraft = List<DeckButton>.from(result.updatedButtons!);
+          }
+          _editCustomGrid = nextOverride;
+          _editCustomGridModified = true;
+          _editDirty = true;
+        });
+        return;
+      }
+      var updated = active.withCustomGrid(nextOverride);
+      if (result.updatedButtons != null) {
+        updated = updated.copyWith(
+          buttons: List<DeckButton>.from(result.updatedButtons!),
+        );
+      }
+      final messenger = ScaffoldMessenger.of(context);
+      final error = await controller.updateProfileFull(
+        updated,
+        undoLabel: tr('Grade desta página'),
+      );
+      if (error != null && mounted) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text(error),
+            duration: const Duration(seconds: 5),
+          ));
+      }
+      return;
+    }
+
+    // 2B. Grade compartilhada global (PC + outros aparelhos).
     if (result.autoGrid && !kIsWeb) {
       final naturalRows = autoFit.deckRows;
       final naturalCols = autoFit.deckCols;
@@ -846,14 +903,15 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
   /// A grade de quem define o deck (o celular), mesmo copiando pelo navegador.
   Future<void> _copyOrMove(DeckButton button) async {
     final shared = _sharedGrid;
-    final profile = controller.currentProfile.value;
+    final profile = _activeProfile(controller.profiles.value);
+    final pageGrid = profile?.customGrid;
     await _withChromePaused(
       () => copyOrMoveButton(
         context,
         controller: controller,
         button: button,
-        rows: shared?['rows'] ?? _grid?.deckRows ?? profile?.rows ?? 3,
-        columns: shared?['columns'] ?? _grid?.deckCols ?? profile?.columns ?? 5,
+        rows: pageGrid?.rows ?? shared?['rows'] ?? _grid?.deckRows ?? profile?.rows ?? 3,
+        columns: pageGrid?.columns ?? shared?['columns'] ?? _grid?.deckCols ?? profile?.columns ?? 5,
       ),
     );
   }
@@ -1359,21 +1417,26 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
         builder: (context, constraints) {
           final area = insets.deflateSize(constraints.biggest);
           DeckGridFit fitFor(DeckProfile page) {
-            final btns = (_editMode && _editProfileId == page.id && _editDraft != null)
-                ? _editDraft!
-                : page.buttons;
+            final editingThis = _editMode && _editProfileId == page.id && _editDraft != null;
+            final btns = editingThis ? _editDraft! : page.buttons;
             final (minCols, minRows) = _extentsOf(btns);
             final hasAiLimits = btns.any((b) => b.dynamicType == aiLimitsDynamicType);
+            final pageOverride =
+                editingThis && _editCustomGridModified ? _editCustomGrid : page.customGrid;
+            final effectiveShared = pageOverride != null
+                ? {'rows': pageOverride.rows, 'columns': pageOverride.columns}
+                : shared;
             return DeckGridFit.compute(
               area: area,
               screen: screen,
-              shared: shared,
+              shared: effectiveShared,
               minCols: minCols,
               minRows: minRows,
               spacing: deck.spacing,
               allowReflow: !_editMode,
               minCellHeight: hasAiLimits ? DeckGridFit.aiLimitsMinCell : DeckGridFit.minCell,
-              preferTwoColPortrait: hasAiLimits,
+              preferTwoColPortrait: hasAiLimits && pageOverride == null,
+              explicitPageGrid: pageOverride != null,
             );
           }
 
@@ -2036,13 +2099,18 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
                   onCanceled: _resumeChrome,
                   onSelected: (action) {
                     _resumeChrome();
+                    final activePage = folder ?? currentProfile;
                     switch (action) {
+                      case _DeckOverflowAction.pageGrid:
+                        if (activePage != null) {
+                          _openLayoutSheet(initialScope: DeckGridScope.thisPage);
+                        }
                       case _DeckOverflowAction.profile:
-                        if (currentProfile != null) {
+                        if (activePage != null) {
                           _withChromePaused(
                             () => ProfileSettingsDialog.show(
                               context,
-                              currentProfile,
+                              activePage,
                               controller.updateProfileFull,
                             ),
                           );
@@ -2051,35 +2119,60 @@ class _StreamDeckPageState extends State<StreamDeckPage> {
                         widget.onToggleFullscreen();
                     }
                   },
-                  itemBuilder: (context) => [
-                    if (currentProfile != null)
+                  itemBuilder: (context) {
+                    final activePage = folder ?? currentProfile;
+                    final pageGrid = activePage?.customGrid;
+                    return [
+                      if (activePage != null)
+                        PopupMenuItem(
+                          value: _DeckOverflowAction.pageGrid,
+                          child: Row(
+                            children: [
+                              Icon(Icons.grid_on_rounded, size: 18, color: c.secondaryLabel),
+                              const SizedBox(width: 10),
+                              Expanded(child: Text(tr('Grade desta página'))),
+                              if (pageGrid != null) ...[
+                                const SizedBox(width: 8),
+                                Text(
+                                  '${pageGrid.columns}×${pageGrid.rows}',
+                                  style: type.caption1.copyWith(
+                                    color: c.accent,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      if (activePage != null)
+                        PopupMenuItem(
+                          value: _DeckOverflowAction.profile,
+                          child: Row(
+                            children: [
+                              Icon(Icons.tune_rounded, size: 18, color: c.secondaryLabel),
+                              const SizedBox(width: 10),
+                              Text(tr('Perfil')),
+                            ],
+                          ),
+                        ),
                       PopupMenuItem(
-                        value: _DeckOverflowAction.profile,
+                        value: _DeckOverflowAction.fullscreen,
                         child: Row(
                           children: [
-                            Icon(Icons.tune_rounded, size: 18, color: c.secondaryLabel),
+                            Icon(
+                              widget.isFullscreen
+                                  ? Icons.fullscreen_exit_rounded
+                                  : Icons.fullscreen_rounded,
+                              size: 18,
+                              color: c.secondaryLabel,
+                            ),
                             const SizedBox(width: 10),
-                            Text(tr('Perfil')),
+                            Text(widget.isFullscreen ? tr('Sair da tela cheia') : tr('Tela cheia')),
                           ],
                         ),
                       ),
-                    PopupMenuItem(
-                      value: _DeckOverflowAction.fullscreen,
-                      child: Row(
-                        children: [
-                          Icon(
-                            widget.isFullscreen
-                                ? Icons.fullscreen_exit_rounded
-                                : Icons.fullscreen_rounded,
-                            size: 18,
-                            color: c.secondaryLabel,
-                          ),
-                          const SizedBox(width: 10),
-                          Text(widget.isFullscreen ? tr('Sair da tela cheia') : tr('Tela cheia')),
-                        ],
-                      ),
-                    ),
-                  ],
+                    ];
+                  },
                 ),
               ],
             ),
@@ -2190,6 +2283,7 @@ class DeckGridFit {
     bool allowReflow = true,
     double minCellHeight = minCell,
     bool preferTwoColPortrait = false,
+    bool explicitPageGrid = false,
   }) {
     final sp = spacingFor(screen, spacing);
     final ratio = spacing.gapRatio;
@@ -2212,6 +2306,57 @@ class DeckGridFit {
     dr = math.max(dr, minRows).clamp(1, 20);
 
     final (cell, gap) = fitCell(area, dc, dr, sp, ratio: ratio);
+    if (explicitPageGrid) {
+      if (!allowReflow || cell >= minCell) {
+        final c = cell.clamp(1.0, _maxCell);
+        return DeckGridFit(
+          cols: dc,
+          rows: dr,
+          cell: c,
+          spacing: c < cell ? math.max(sp, c * ratio) : gap,
+          area: area,
+          deckCols: dc,
+          deckRows: dr,
+          comfortMinCell: comfortMin,
+        );
+      }
+      // Columns fit cleanly across width even if rows require vertical scroll: preserve the
+      // user's chosen per-page column count with comfortable scrollable cells.
+      final widthGap =
+          math.max(sp, math.min((area.width - sp * (dc - 1)) / dc, _maxCell) * ratio);
+      final cellByWidth =
+          math.min((area.width - widthGap * (dc - 1)) / dc, _maxCell);
+      if (cellByWidth >= minCell) {
+        return DeckGridFit(
+          cols: dc,
+          rows: dr,
+          cell: cellByWidth,
+          spacing: widthGap,
+          area: area,
+          deckCols: dc,
+          deckRows: dr,
+          comfortMinCell: comfortMin,
+        );
+      }
+      // Too narrow for the chosen columns (e.g. wide landscape override rotated to narrow
+      // portrait): gracefully reflow to tappable columns with vertical scroll, never clip.
+      final cols = _fit(area.width, _reflowTarget, sp).clamp(1, dc);
+      final g = math.max(sp, math.min((area.width - sp * (cols - 1)) / cols, _maxCell) * ratio);
+      final w = math.min((area.width - g * (cols - 1)) / cols, _maxCell);
+      final rows = math.max(1, ((area.height + g) / (w + g)).floor());
+      return DeckGridFit(
+        cols: cols,
+        rows: rows,
+        cell: math.max(1, w),
+        spacing: g,
+        area: area,
+        deckCols: dc,
+        deckRows: dr,
+        reflow: true,
+        comfortMinCell: comfortMin,
+      );
+    }
+
     // Em pé com uma grade deitada (ou cartões largos de IA em 4 colunas), ou teclas
     // pequenas demais: reorganiza.
     final isTallPortrait = area.height > area.width * 1.15;
